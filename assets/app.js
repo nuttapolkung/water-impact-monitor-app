@@ -281,19 +281,24 @@
           : "● ต้นทางไม่พร้อมใช้งาน";
     $("source-status").className =
       `badge ${data.source.status === "fresh" ? "green" : "yellow"}`;
-    $("station-count").textContent =
-      `${data.stations.length} จุดตรวจวัด · รัศมี ${data.radiusKm} กม.`;
+    const unavailable = data.source.status === "unavailable";
+    $("station-count").textContent = unavailable
+      ? "ยังไม่มีข้อมูลสถานี"
+      : `${data.stations.length} จุดตรวจวัด · รัศมี ${data.radiusKm} กม.`;
     $("data-status").textContent =
       data.source.status !== "fresh"
-        ? `${data.source.message} • ข้อมูลที่เก็บไว้เมื่อ ${formatTime(data.source.fetchedAt)}`
+        ? `${data.source.message}${data.source.fetchedAt ? " • ข้อมูลที่เก็บไว้เมื่อ " + formatTime(data.source.fetchedAt) : ""}`
         : data.stations.length
           ? `${data.source.message} • พบ ${data.stations.length} จุดตรวจวัดในรัศมี ${data.radiusKm} กม. สีเทาคือข้อมูลเก่าหรือไม่ครบ`
           : "ไม่พบสถานีในรัศมีนี้ ลองขยายรัศมีหรือเลือกพื้นที่อื่น";
     const s = data.stations[0];
-    $("nearest").textContent = s?.name || "ไม่พบสถานี";
+    $("nearest").textContent =
+      s?.name || (unavailable ? "ยังไม่มีข้อมูล" : "ไม่พบสถานี");
     $("near-distance").textContent = s
       ? `${s.distanceKm.toFixed(1)} กม. · ${qualityText(s)}`
-      : "ลองขยายรัศมีค้นหา";
+      : unavailable
+        ? "ต้นทางไม่พร้อมใช้งาน"
+        : "ลองขยายรัศมีค้นหา";
     $("near-level").textContent = s ? levelText(s) : "—";
     $("sensor-time").textContent = s
       ? `ตรวจวัด: ${formatTime(s.sensorUpdatedAt)}`

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createBrowserSource } from "../assets/browser-source.js";
 import { SOURCE_URL } from "../src/water.js";
+import { RID_URL, fetchRidBrowserSnapshot } from "../assets/rid-source.js";
 
 const payload = {
   waterlevel_data: {
@@ -105,4 +106,83 @@ test("browser fallback refuses invalid and oversized responses without producing
       }),
   });
   await assert.rejects(oversized.get(query), /SOURCE_UNAVAILABLE/);
+});
+
+test("browser RID failover keeps ThaiWater throttled while refreshing independent snapshots", async () => {
+  let time = Date.parse("2026-10-02T13:20:00Z"),
+    primary = 0,
+    secondary = 0;
+  const source = createBrowserSource({
+    now: () => time,
+    fetcher: async () => {
+      primary++;
+      return new Response("", { status: 429 });
+    },
+    ridFetcher: async () => {
+      secondary++;
+      return {
+        type: "INIT",
+        data: {
+          383: {
+            name: "ปตร.บางนกแขวก",
+            location: { x: 99.927, y: 13.5 },
+            measure: { wl: true },
+            cross_section: [{ unit: 0, warning: 2.5, critical: 2.8 }],
+            values: { water_level: { value: 2.9, unixtime: time / 1000 } },
+          },
+        },
+      };
+    },
+  });
+  const first = await source.get(query);
+  assert.match(first.source.name, /RID/);
+  assert.equal(first.stations[0].waterLevelMsl, 2.9);
+  assert.equal(first.stations[0].situation, "critical");
+  assert.equal(first.assessment.confidence, "low");
+  await source.get(query);
+  assert.equal(secondary, 1);
+  time += 60001;
+  await source.get(query);
+  assert.equal(primary, 1);
+  assert.equal(secondary, 2);
+});
+
+test("browser RID reads one public INIT then closes and abort/timeout close sockets", async () => {
+  let socket;
+  class FakeSocket extends EventTarget {
+    constructor(...args) {
+      super();
+      socket = this;
+      this.args = args;
+    }
+    close() {
+      this.closed = true;
+    }
+    message(data) {
+      this.dispatchEvent(new MessageEvent("message", { data }));
+    }
+  }
+  const request = fetchRidBrowserSnapshot({
+    Socket: FakeSocket,
+    timeoutMs: 100,
+  });
+  assert.deepEqual(socket.args, [RID_URL]);
+  socket.message(
+    JSON.stringify({ message: JSON.stringify({ type: "INIT", data: {} }) }),
+  );
+  assert.equal((await request).type, "INIT");
+  assert.equal(socket.closed, true);
+  const controller = new AbortController();
+  const aborted = fetchRidBrowserSnapshot({
+    Socket: FakeSocket,
+    signal: controller.signal,
+  });
+  controller.abort();
+  await assert.rejects(aborted, { name: "AbortError" });
+  assert.equal(socket.closed, true);
+  await assert.rejects(
+    fetchRidBrowserSnapshot({ Socket: FakeSocket, timeoutMs: 5 }),
+    /TIMEOUT/,
+  );
+  assert.equal(socket.closed, true);
 });

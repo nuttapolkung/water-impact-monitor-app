@@ -8,17 +8,17 @@ Live server-side request returned HTTP 200, JSON and 807 telemetry records durin
 
 Verified fields:
 
-| Meaning | Response path |
-| --- | --- |
-| Telemetry rows | `waterlevel_data.data` with `result: OK` |
-| Stable station ID/name | `station.id`, `station.tele_station_name.th` |
-| Coordinates | `station.tele_station_lat`, `station.tele_station_long` |
-| MSL level/previous value | `waterlevel_msl`, `waterlevel_msl_previous` |
-| Station-local level | `waterlevel_m` (not interchangeable with MSL) |
-| Sensor time | `waterlevel_datetime` (observed unzoned Thailand time) |
-| Bank reference | `station.min_bank` |
-| Situation | `situation_level`, with meanings in `scale.data.scale` |
-| Ownership/context | `agency.agency_name`, `river_name`, `basin.basin_name`, `geocode.province_name` |
+| Meaning                  | Response path                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------- |
+| Telemetry rows           | `waterlevel_data.data` with `result: OK`                                        |
+| Stable station ID/name   | `station.id`, `station.tele_station_name.th`                                    |
+| Coordinates              | `station.tele_station_lat`, `station.tele_station_long`                         |
+| MSL level/previous value | `waterlevel_msl`, `waterlevel_msl_previous`                                     |
+| Station-local level      | `waterlevel_m` (not interchangeable with MSL)                                   |
+| Sensor time              | `waterlevel_datetime` (observed unzoned Thailand time)                          |
+| Bank reference           | `station.min_bank`                                                              |
+| Situation                | `situation_level`, with meanings in `scale.data.scale`                          |
+| Ownership/context        | `agency.agency_name`, `river_name`, `basin.basin_name`, `geocode.province_name` |
 
 The live response and the [HII water-level page](https://tiwrmdev.hii.or.th/v3/telemetering/wl/warning) agree that level 3 is normal, 4 high and 5 overflow; levels 1/2 describe low water. [HII water data standards](https://standard.thaiwater.net/) describe data exchange and warning criteria.
 
@@ -34,7 +34,7 @@ Initial 50 km query around the clearly labeled Damnoen Saduak reference coordina
 - Verified schema: JSON envelope `message` contains a JSON string `{type: "INIT", data: {stationId: ...}}`; `location.x/y` are longitude/latitude, `measure.wl` selects water stations, `values.water_level_value_list.value` gives gauge readings, and `unixtime` is UTC Unix seconds. `cross_section[index]` matches the reading point and contains `parameter`, `unit`, `warning`, and `critical`. The official JS explicitly labels unit 0 as ม.รทก. and 1 as ม.รสม. Unknown units are omitted, not converted.
 - Threshold classifications match the official dashboard comparison: at/above critical is critical, at/above warning is watch. Missing/inconsistent thresholds remain unknown. These are RID thresholds, not proof of overflowing banks.
 - The independently served feed included Bang Nok Khwaek (TMK03), Wat Bang Khonthi Nai (TK.72), Bang Khonthi (TK.57), Ratchaburi and surrounding Mae Klong gauges. The observed 50 km Damnoen reference query found 17 gauge points. Upstream and downstream gauge readings at TMK03 remain distinct.
-- A single bounded connection per shared refresh reads INIT and closes; it is not a per-user persistent socket. [RID hydromet](https://hydromet.rid.go.th/) remains a public reference source.
+- A single bounded connection per shared server refresh reads INIT and closes. When the hosted feed is unavailable, each page can also share one browser snapshot per minute and close immediately. Neither route keeps per-user persistent sockets. [RID hydromet](https://hydromet.rid.go.th/) remains a public reference source.
 - Some RID stations are already supplied through ThaiWater, with agency attribution preserved; this does not constitute an independent upstream.
 
 ## Candidate: rain and tide
@@ -58,6 +58,6 @@ Physical iPhone/Android GPS permission, acquisition and accuracy still require t
 
 Render outbound requests to ThaiWater returned HTTP 429 on 2 October 2026 although local requests succeeded. The app respects throttling with per-source cooldown (at least 15 minutes or the longer Retry-After value), attempts the independent RID public feed, and clearly identifies the active source. It does not rotate proxies, invent readings or relabel a previous observation as live.
 
-Hosted RID connections also timed out before their TLS/WebSocket handshake completed, with an explicit 30-second bound; local retrieval continued to succeed. The cause beyond this observed network failure is not established. The dashboard therefore has an explicitly labeled browser fallback to the same public CORS-enabled ThaiWater endpoint, with shared normalization, a per-page one-minute cache, request/body bounds and 429 backoff. No GPS coordinates or cookies are sent in that national-data request. This restores a route for the browser without claiming that the hosted proxy can retrieve live upstream data.
+Hosted RID connections also timed out before their TLS/WebSocket handshake completed, with an explicit 30-second bound; local retrieval continued to succeed. The cause beyond this observed network failure is not established. Production-browser ThaiWater calls also returned HTTP 429 despite successful local command-line requests. The dashboard therefore has an explicitly labeled browser fallback through ThaiWater, then the independent public RID INIT snapshot, with shared normalization, a per-page one-minute cache, request/body bounds and independent backoff. No GPS coordinates or subscription messages are sent upstream. This browser route does not establish that the hosted proxy can retrieve live upstream data.
 
 The official DWR listing also points to the Mae Klong JSON service at `https://tele-maeklong.dwr.go.th/webservice/webservice_mk_Json`. It returned records dated 23 August 2026 and zero-valued observations during the October check; it is not used as a fresh fallback.
