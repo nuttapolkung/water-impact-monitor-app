@@ -101,3 +101,36 @@ test("API rate limiting does not block health checks", async () => {
     assert.equal((await fetch(base + "/healthz")).status, 200);
   });
 });
+
+test("Render clients behind the same proxy have independent limits", async () => {
+  await withServer({ rateLimit: 1, trustRenderProxy: true }, async (base) => {
+    const url = base + "/api/water?lat=13&lon=100";
+    const headers = { "x-forwarded-for": "203.0.113.1, 10.0.0.1" };
+    assert.equal((await fetch(url, { headers })).status, 200);
+    assert.equal((await fetch(url, { headers })).status, 429);
+    assert.equal(
+      (
+        await fetch(url, {
+          headers: { "x-forwarded-for": "203.0.113.2, 10.0.0.1" },
+        })
+      ).status,
+      200,
+    );
+  });
+});
+
+test("direct clients cannot bypass limits by supplying proxy headers", async () => {
+  await withServer({ rateLimit: 1, trustRenderProxy: false }, async (base) => {
+    const url = base + "/api/water?lat=13&lon=100";
+    assert.equal(
+      (await fetch(url, { headers: { "true-client-ip": "203.0.113.1" } }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await fetch(url, { headers: { "true-client-ip": "203.0.113.2" } }))
+        .status,
+      429,
+    );
+  });
+});

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { isIP } from "node:net";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,7 @@ export function createApp({
   origins = DEFAULT_ORIGINS,
   now = Date.now,
   version = process.env.RENDER_GIT_COMMIT || "local",
+  trustRenderProxy = Boolean(process.env.RENDER),
 } = {}) {
   const clients = new Map();
   return createServer(async (req, res) => {
@@ -71,11 +73,17 @@ export function createApp({
           json(405, { error: "METHOD_NOT_ALLOWED" });
           return;
         }
-        // Render terminates TLS and appends the client address to X-Forwarded-For.
-        const ip = process.env.RENDER
-          ? req.headers["x-forwarded-for"]?.split(",").at(-1)?.trim() ||
-            req.socket.remoteAddress
-          : req.socket.remoteAddress;
+        // Trust edge client headers only on Render, never on direct local requests.
+        // Prefer its CDN's client address; Render documents the first XFF address as the client.
+        const forwarded = trustRenderProxy
+          ? req.headers["true-client-ip"] ||
+            req.headers["cf-connecting-ip"] ||
+            req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+          : null;
+        const ip =
+          typeof forwarded === "string" && isIP(forwarded)
+            ? forwarded
+            : req.socket.remoteAddress;
         const timestamp = now();
         if (clients.size > 5000)
           for (const [key, value] of clients)
