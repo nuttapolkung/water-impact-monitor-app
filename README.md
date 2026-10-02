@@ -23,12 +23,14 @@ Tests cover the verified upstream schema, numeric nulls, station coordinates, wa
 
 | Purpose | Service | URL | Configuration |
 | --- | --- | --- | --- |
-| Public frontend | `water-impact-monitor` | https://water-impact-monitor.onrender.com | Static, main, `echo ready`, publish `.` |
+| Public frontend | `water-impact-monitor` | https://water-impact-monitor.onrender.com | Static, main, `npm ci && npm run build:static`, publish `dist` |
 | API and optional combined frontend | `water-impact-monitor-app` | https://water-impact-monitor-app.onrender.com | Node, main, `npm install`, `npm start`, Singapore, existing free plan |
 
 Both services are configured for auto-deploy, but the live push test did not trigger builds. Render shows no connected Git provider; reconnect GitHub for this repository before claiming push-based auto-deployment. Current releases were manually triggered and verified. `assets/config.js` points the canonical static hostname at the existing Node API. Other hosts use their own origin. This keeps the current public URL and requires no new service. The Node service also serves the frontend, so it can be used alone if hosting is later consolidated.
 
 `npm install` / `npm ci` runs the checks through `postinstall`, so the existing Render Node build fails if they do not pass. A GitHub Actions template is provided in `docs/templates/github-actions-check.yml`; enabling that optional workflow requires GitHub authorization with the `workflow` scope. It is not enabled by this deployment.
+
+`npm run build:static` copies only index.html and assets into the generated dist directory; the static service publishes that directory instead of the repository root.
 
 Leaflet 1.9.4 JS/CSS are vendored with their license and verified against the official SHA-256 values. Map tiles use the standard OpenStreetMap service with visible attribution, normal browser caching, and a referrer. Change `tileUrl` in `assets/config.js` when a dedicated tile service is needed. Do not add tile prefetching or offline tile downloads.
 
@@ -51,8 +53,8 @@ Status codes: 200 for fresh or usable stale cache, 400 invalid parameters, 429 r
 ## Reliability and assessment
 
 - National data is fetched at most once per 60 seconds per process, independent of user coordinates. Concurrent requests share a fetch.
-- Upstream requests have an 8-second timeout, one retry, an 8 MiB body cap, content/schema validation and a 60-second retry backoff. HTTP 429 is not immediately retried: it respects `Retry-After` with at least 15 minutes of per-source cooldown. Access refusals are also not immediately retried.
-- ThaiWater is the primary source. If it fails, one bounded connection reads the independent RID public WebSocket INIT snapshot. The active source and fallback state are returned by the API and displayed. Each national snapshot is shared across all users; no user coordinates go to either upstream.
+- ThaiWater requests have an 8-second timeout, one retry, an 8 MiB body cap, content/schema validation and a 60-second retry backoff. HTTP 429 is not immediately retried: it respects `Retry-After` with at least 15 minutes of per-source cooldown. Access refusals are also not immediately retried.
+- ThaiWater is the primary source. If it fails, one bounded connection reads the independent RID public WebSocket INIT snapshot. The active source and fallback state are returned by the API and displayed. RID has a 30-second connection/snapshot timeout and one attempt per refresh. Each national snapshot is shared across all users; no user coordinates go to either upstream.
 - Last-known-good data survives upstream errors and is usable for up to six hours. Its original fetch timestamp is preserved. A JSON cache is written atomically to `.cache/water.json` when writable. Render's free disk is ephemeral, so cache persistence across deploys/restarts is not guaranteed.
 - Only station readings at most three hours old, with a known status and MSL water level, enter screening. RID station-local values can enter only when verified warning and critical thresholds use that same local datum. Stale source data disables the score. Station-local levels are displayed separately and never treated as mean sea level.
 - ThaiWater levels **1/2 = low water, 3 = normal, 4 = high water, 5 = overflow**. This is not a monotonic flood-warning scale.

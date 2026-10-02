@@ -5,12 +5,15 @@ export const RID_URL = "wss://telerid.rid.go.th/ws/public/";
 // The official dashboard consumes this public INIT snapshot. One bounded connection
 // retrieves it for the shared cache; browsers never open per-user upstream sockets.
 export function fetchRidSnapshot({
-  timeoutMs = 8000,
+  timeoutMs = 30000,
+  logger = console,
   Socket = WebSocket,
 } = {}) {
   return new Promise((resolve, reject) => {
     const socket = new Socket(RID_URL);
-    let settled = false;
+    let settled = false,
+      opened = false;
+    const startedAt = Date.now();
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
@@ -20,12 +23,31 @@ export function fetchRidSnapshot({
       else resolve(value);
     };
     const timer = setTimeout(
-      () => finish(new Error("UPSTREAM_TIMEOUT")),
+      () =>
+        finish(
+          new Error(
+            opened ? "UPSTREAM_SNAPSHOT_TIMEOUT" : "UPSTREAM_CONNECT_TIMEOUT",
+          ),
+        ),
       timeoutMs,
     );
-    socket.addEventListener("error", () =>
-      finish(new Error("UPSTREAM_REQUEST_FAILED")),
-    );
+    socket.addEventListener("open", () => {
+      opened = true;
+      logger.info(
+        JSON.stringify({
+          event: "rid_connection_open",
+          elapsedMs: Date.now() - startedAt,
+        }),
+      );
+    });
+    socket.addEventListener("error", (event) => {
+      const cause = event.error?.cause?.code || event.error?.code;
+      const code =
+        typeof cause === "string" && /^[A-Z_0-9]+$/.test(cause)
+          ? cause
+          : "REQUEST_FAILED";
+      finish(new Error(`UPSTREAM_${code}`));
+    });
     socket.addEventListener("close", () => {
       if (!settled) finish(new Error("UPSTREAM_CLOSED"));
     });

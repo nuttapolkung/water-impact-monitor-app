@@ -91,6 +91,7 @@ test("RID snapshot connection closes after INIT or timeout and rejects invalid d
     }
   }
   const request = fetchRidSnapshot({ Socket: FakeSocket, timeoutMs: 100 });
+  socket.dispatchEvent(new Event("open"));
   socket.message(JSON.stringify({ message: JSON.stringify(payload()) }));
   assert.equal((await request).type, "INIT");
   assert.equal(socket.closed, true);

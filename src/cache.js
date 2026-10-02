@@ -13,6 +13,8 @@ export const RID_SOURCE = {
   url: RID_URL,
   normalize: normalizeRid,
   load: fetchRidSnapshot,
+  timeoutMs: 30000,
+  attempts: 1,
 };
 
 export function retryDelay(value, now, fallback) {
@@ -61,7 +63,8 @@ export function createWaterCache({
   })();
 
   async function request(source) {
-    if (source.load) return source.load({ timeoutMs });
+    if (source.load)
+      return source.load({ timeoutMs: source.timeoutMs || timeoutMs, logger });
     const response = await fetcher(source.url, {
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
@@ -100,7 +103,7 @@ export function createWaterCache({
     for (const source of sources) {
       if (now() < (cooldowns.get(source.name) || 0)) continue;
       let failure;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < (source.attempts || 2); attempt++) {
         try {
           const stations = source.normalize(
             await request(source),
