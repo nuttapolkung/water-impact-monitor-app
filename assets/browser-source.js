@@ -7,7 +7,8 @@ export function createBrowserSource({ fetcher = fetch, now = Date.now } = {}) {
   let snapshot = null,
     pending = null,
     retryAt = 0,
-    failed = false;
+    failed = false,
+    lastError = null;
   async function update(signal) {
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -32,7 +33,7 @@ export function createBrowserSource({ fetcher = fetch, now = Date.now } = {}) {
             Number.isFinite(delay) ? delay : 0,
           );
         await response.body?.cancel();
-        throw new Error("SOURCE_UNAVAILABLE");
+        throw new Error(`SOURCE_HTTP_${response.status}`);
       }
       if (!response.headers.get("content-type")?.includes("application/json")) {
         await response.body?.cancel();
@@ -63,8 +64,10 @@ export function createBrowserSource({ fetcher = fetch, now = Date.now } = {}) {
       snapshot = { fetchedAt: new Date(now()).toISOString(), stations };
       retryAt = 0;
       failed = false;
+      lastError = null;
     } catch (error) {
       failed = true;
+      lastError = error;
       retryAt = Math.max(retryAt, now() + 60000);
       // A location change abort should not delay a subsequent national-data fetch.
       if (signal?.aborted) retryAt = 0;
@@ -91,7 +94,8 @@ export function createBrowserSource({ fetcher = fetch, now = Date.now } = {}) {
         }
       }
       const age = snapshot ? now() - Date.parse(snapshot.fetchedAt) : Infinity;
-      if (age < 0 || age > 6 * 3600000) throw new Error("SOURCE_UNAVAILABLE");
+      if (age < 0 || age > 6 * 3600000)
+        throw new Error("SOURCE_UNAVAILABLE", { cause: lastError });
       const status = failed || age >= 60000 ? "stale" : "fresh";
       const stations = nearbyStations(
         snapshot.stations,

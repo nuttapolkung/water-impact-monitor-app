@@ -360,7 +360,11 @@
           if (requestId !== serial) return;
         } catch (error) {
           if (requestId !== serial) return;
-          console.warn("water_browser_source_unavailable", error?.name, error?.message);
+          console.warn(
+            "water_browser_source_unavailable",
+            error?.cause?.name || error?.name,
+            error?.cause?.message || error?.message,
+          );
           data.source.message += " • เส้นทางสำรองผ่านเบราว์เซอร์ยังไม่พร้อม";
         }
       }
