@@ -1,0 +1,82 @@
+<!doctype html><html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Water Impact Monitor</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:#06131e;color:#eef8ff}
+main{width:min(1180px,100%);margin:auto;padding:clamp(12px,3vw,28px)}
+.hero{background:linear-gradient(135deg,#102d45,#0b1e2d);border:1px solid #21465f;border-radius:24px;padding:clamp(18px,4vw,34px)}
+.top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:clamp(24px,5vw,44px);margin:0}.sub{color:#9fb5c7;margin-top:6px}
+.badge{padding:8px 12px;border-radius:999px;background:#17344a;font-size:13px}
+.impact{margin-top:22px;display:grid;grid-template-columns:160px 1fr;gap:22px;align-items:center}
+.gauge{width:150px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#4dd493 0 25%,#203a4d 25%);position:relative}
+.gauge:after{content:"";position:absolute;inset:13px;border-radius:50%;background:#0d2232}.gauge>div{z-index:1;text-align:center}.score{font-size:42px;font-weight:900}
+.verdict{font-size:clamp(23px,4vw,38px);font-weight:900}.desc{color:#b5c7d5;line-height:1.55}
+.metrics,.stations{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
+.card{background:#0d2131;border:1px solid #1c4059;border-radius:18px;padding:16px}.label{color:#91a9bb;font-size:13px}.value{font-size:26px;font-weight:850;margin-top:5px}
+.controls{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}button,select{border:0;border-radius:12px;padding:11px 14px;font-size:14px}button{font-weight:750;cursor:pointer}
+.station .head{display:flex;justify-content:space-between;gap:8px}.station .wl{font-size:28px;font-weight:900;margin:12px 0 4px}.distance{font-size:13px;color:#8fa8ba}
+.bar{height:8px;border-radius:9px;background:#19384c;margin-top:12px;overflow:hidden}.fill{height:100%;background:currentColor}
+.green{color:#55db9a}.yellow{color:#ffd166}.orange{color:#ff994d}.red{color:#ff6479}
+.note{font-size:12px;color:#8299aa;line-height:1.5;margin-top:18px}
+#msg{white-space:pre-wrap;color:#9fb5c7}
+@media(max-width:760px){.impact{grid-template-columns:1fr;text-align:center}.gauge{margin:auto}.metrics{grid-template-columns:1fr 1fr}.stations{grid-template-columns:1fr}}
+@media(max-width:420px){main{padding:10px}.hero{border-radius:18px;padding:16px}.metrics{grid-template-columns:1fr}.controls>*{flex:1}.gauge{width:130px}.score{font-size:36px}}
+</style></head><body><main>
+<section class="hero">
+<div class="top"><div><h1>🌊 Water Impact Monitor</h1><div class="sub">ประเมินผลกระทบจากระดับน้ำรอบตำแหน่งของคุณ</div></div><div id="fresh" class="badge">● รอตำแหน่ง</div></div>
+<div class="impact">
+<div id="gauge" class="gauge"><div><div id="score" class="score">—</div><div>ความเสี่ยง</div></div></div>
+<div><div class="label">ผลประเมินตำแหน่งปัจจุบัน</div><div id="verdict" class="verdict">กำลังรอ Location</div>
+<div id="explain" class="desc">ระบบจะหาสถานีรอบตัว เรียงตามระยะทาง และประเมินจากสถานะสถานี ระยะห่าง และแนวโน้มระดับน้ำ</div></div>
+</div>
+<div class="metrics">
+<div class="card"><div class="label">📍 ตำแหน่งของคุณ</div><div id="place" class="value">ยังไม่ได้รับ</div><div id="coords" class="distance"></div></div>
+<div class="card"><div class="label">📡 สถานีใกล้ที่สุด</div><div id="nearest" class="value">—</div><div id="nearDist" class="distance">—</div></div>
+<div class="card"><div class="label">💧 ระดับน้ำสถานีใกล้สุด</div><div id="nearLevel" class="value">—</div><div id="trend" class="distance">—</div></div>
+</div></section>
+
+<div class="controls"><button id="locate">📍 ใช้ Location ปัจจุบัน</button><button id="refresh">↻ รีเฟรช</button>
+<select id="radius"><option value="20">20 กม.</option><option value="50" selected>50 กม.</option><option value="100">100 กม.</option></select></div>
+<div id="msg"></div><div id="stations" class="stations"></div>
+<div class="note">* “ผลกระทบ” เป็นการคัดกรองเบื้องต้นจากข้อมูลสถานี ไม่ใช่แบบจำลองน้ำท่วมเฉพาะแปลงที่ดิน เพราะระดับน้ำที่สถานีเพียงอย่างเดียวไม่บอกระดับความสูงของบ้าน แนวคันกั้นน้ำ การระบายน้ำ หรือเส้นทางการไหลทั้งหมดได้ หน้าเว็บตรวจข้อมูลทุก 5 วินาที แต่ค่าต้นทางเปลี่ยนตามรอบของสถานี</div>
+</main><script>
+const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load";let here=null;
+const $=s=>document.querySelector(s), num=v=>{v=Number(v);return Number.isFinite(v)?v:null}, txt=v=>typeof v==="object"?(v?.th||v?.en||""):(v??"");
+const get=(o,p)=>p.split(".").reduce((a,k)=>a?.[k],o);
+function hav(a,b,c,d){let R=6371,p=Math.PI/180,x=(c-a)*p,y=(d-b)*p,q=Math.sin(x/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(q))}
+function coord(r){return[num(r.latitude??r.lat??get(r,"station.latitude")??get(r,"geocode.latitude")),num(r.longitude??r.long??r.lng??get(r,"station.longitude")??get(r,"geocode.longitude"))]}
+function state(r){let s=num(r.situation_level)||1;return s>=5?["ล้นตลิ่ง","red",100]:s==4?["วิกฤต","red",85]:s==3?["เตือนภัย","orange",65]:s==2?["เฝ้าระวัง","yellow",40]:["ปกติ","green",12]}
+function assess(rows){
+ if(!rows.length)return{score:null,label:"ข้อมูลไม่เพียงพอ",why:"ไม่พบสถานีที่มีพิกัดในรัศมีที่เลือก"};
+ let risk=0, factors=[];
+ rows.slice(0,8).forEach(r=>{let [lab,cl,base]=state(r), proximity=Math.max(.15,1-r._d/100), v=base*proximity;risk=Math.max(risk,v);if(base>=40)factors.push(`${lab} ${r._d.toFixed(1)} กม.`)});
+ risk=Math.round(Math.min(100,risk));
+ let label=risk>=75?"มีโอกาสได้รับผลกระทบสูง":risk>=50?"มีโอกาสได้รับผลกระทบ":risk>=25?"ควรเฝ้าระวัง":"ยังไม่พบสัญญาณเสี่ยงสูง";
+ return{score:risk,label,why:factors.length?`พบสถานีที่ต้องติดตาม: ${factors.slice(0,3).join(" • ")}`:"สถานีใกล้เคียงที่ตรวจพบยังอยู่ในระดับปกติ"};
+}
+function showAssessment(rows){
+ let a=assess(rows),sc=a.score??0, color=sc>=75?"#ff6479":sc>=50?"#ff994d":sc>=25?"#ffd166":"#55db9a";
+ $("#score").textContent=a.score==null?"—":a.score;$("#verdict").textContent=a.label;$("#verdict").style.color=color;$("#explain").textContent=a.why;
+ $("#gauge").style.background=`conic-gradient(${color} 0 ${sc}%,#203a4d ${sc}% 100%)`;
+}
+async function load(){
+ if(!here){$("#msg").textContent="กรุณากดใช้ Location ปัจจุบัน";return}
+ $("#msg").textContent="กำลังอ่านข้อมูลสถานี…";
+ try{
+ let res=await fetch(API,{headers:{Accept:"application/json"}});if(!res.ok)throw Error("HTTP "+res.status);let j=await res.json();
+ let rows=j?.waterlevel_data?.data||j?.data||[],rad=+$("#radius").value;
+ rows=rows.map(r=>{let [a,b]=coord(r);return{...r,_lat:a,_lon:b,_d:a!=null&&b!=null?hav(here.lat,here.lon,a,b):99999}}).filter(r=>r._d<=rad).sort((a,b)=>a._d-b._d);
+ render(rows);showAssessment(rows);$("#fresh").textContent="● อัปเดต "+new Date().toLocaleTimeString("th-TH");$("#msg").textContent=`พบ ${rows.length} สถานีในรัศมี ${rad} กม.`;
+ }catch(e){$("#msg").textContent="อ่าน API ไม่สำเร็จ: "+e.message+"\nสำหรับใช้งานจริงควรวาง backend proxy เพื่อแก้ CORS และเพิ่ม cache/failover";}
+}
+function render(rows){
+ let box=$("#stations");box.innerHTML="";let r0=rows[0];
+ if(r0){let nm=txt(get(r0,"station.tele_station_name"))||txt(r0.station_name)||"สถานี";$("#nearest").textContent=nm;$("#nearDist").textContent=r0._d.toFixed(1)+" กม. จากคุณ";let wl=num(r0.waterlevel_msl??r0.waterlevel_m),pr=num(r0.waterlevel_msl_previous);$("#nearLevel").textContent=wl==null?"—":wl.toFixed(2)+" ม.รทก.";$("#trend").textContent=wl!=null&&pr!=null?((wl-pr)>=0?"▲ ":"▼ ")+Math.abs(wl-pr).toFixed(2)+" ม.":"ไม่มีค่าเทียบก่อนหน้า"}
+ else{$("#nearest").textContent=$("#nearLevel").textContent="—";$("#nearDist").textContent=$("#trend").textContent="ไม่พบข้อมูล"}
+ rows.slice(0,12).forEach(r=>{let nm=txt(get(r,"station.tele_station_name"))||txt(r.station_name)||"สถานีไม่ระบุชื่อ",[lab,cl,base]=state(r),wl=num(r.waterlevel_msl??r.waterlevel_m),d=document.createElement("div");d.className="card station";
+ d.innerHTML=`<div class="head"><b>${nm}</b><span class="${cl}">${lab}</span></div><div class="wl ${cl}">${wl==null?"—":wl.toFixed(2)+" ม.รทก."}</div><div class="distance">📍 ${r._d.toFixed(1)} กม. จากตำแหน่งคุณ</div><div class="bar"><div class="fill ${cl}" style="width:${Math.min(100,base)}%"></div></div>`;box.appendChild(d)})
+}
+$("#locate").onclick=()=>navigator.geolocation?.getCurrentPosition(p=>{here={lat:p.coords.latitude,lon:p.coords.longitude};$("#place").textContent="Location ปัจจุบัน";$("#coords").textContent=`${here.lat.toFixed(5)}, ${here.lon.toFixed(5)} • ±${Math.round(p.coords.accuracy)} ม.`;load()},e=>$("#msg").textContent="Location error: "+e.message,{enableHighAccuracy:true,timeout:15000});
+$("#refresh").onclick=load;$("#radius").onchange=load;setInterval(load,5000);
+</script></body></html>
