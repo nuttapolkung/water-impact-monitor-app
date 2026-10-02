@@ -41,6 +41,16 @@ export function fetchRidSnapshot({
       );
     });
     socket.addEventListener("error", (event) => {
+      logger.warn(
+        JSON.stringify({
+          event: "rid_connection_error",
+          elapsedMs: Date.now() - startedAt,
+          message: String(event.message || event.error?.message || "").slice(
+            0,
+            200,
+          ),
+        }),
+      );
       const cause = event.error?.cause?.code || event.error?.code;
       const code =
         typeof cause === "string" && /^[A-Z_0-9]+$/.test(cause)
