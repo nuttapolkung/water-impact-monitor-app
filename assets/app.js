@@ -107,7 +107,7 @@
     const observedWarning = lastData?.stations?.some(
       (s) =>
         s.dataQuality === "fresh" &&
-        (s.situation === "overflow" || s.situation === "high"),
+        ["overflow", "critical", "high"].includes(s.situation),
     );
     $("emergency").hidden = !(
       observedWarning || ["high", "elevated"].includes(a.level)
@@ -147,7 +147,7 @@
       `ห่าง ${s.distanceKm.toFixed(1)} กม.`,
       `ตรวจวัด ${formatTime(s.sensorUpdatedAt)}`,
       s.river,
-      `ThaiWater · ${s.agency || "ไม่ระบุหน่วยงาน"}`,
+      `${s.source} · ${s.agency || "ไม่ระบุหน่วยงาน"}`,
     ]) {
       if (!value) continue;
       const p = document.createElement("p");
@@ -236,15 +236,17 @@
       reading.textContent = levelText(s);
       card.append(reading);
       const gap =
-        s.bankGapM === null
-          ? "ไม่มีระดับตลิ่งอ้างอิง"
-          : `${s.bankGapM > 0 ? "ต่ำกว่าตลิ่ง" : "ถึงหรือเกินตลิ่ง"} ${Math.abs(s.bankGapM).toFixed(2)} ม. ที่สถานี`;
+        s.warningLevel != null && s.criticalLevel != null
+          ? `เฝ้าระวัง ${s.warningLevel.toFixed(2)} · วิกฤติ ${s.criticalLevel.toFixed(2)} ${s.thresholdDatum === "msl" ? "ม.รทก." : "ม. ระดับเฉพาะสถานี"}`
+          : s.bankGapM === null
+            ? "ไม่มีระดับตลิ่งอ้างอิง"
+            : `${s.bankGapM > 0 ? "ต่ำกว่าตลิ่ง" : "ถึงหรือเกินตลิ่ง"} ${Math.abs(s.bankGapM).toFixed(2)} ม. ที่สถานี`;
       for (const text of [
         `${s.distanceKm.toFixed(1)} กม. · ${s.river || s.basin || s.province || "ไม่ระบุลำน้ำ"}`,
         trendText(s),
         gap,
         `ตรวจวัด: ${formatTime(s.sensorUpdatedAt)}`,
-        `ThaiWater · ${s.agency || "ไม่ระบุหน่วยงาน"}${s.code ? " · " + s.code : ""}`,
+        `${s.source} · ${s.agency || "ไม่ระบุหน่วยงาน"}${s.code ? " · " + s.code : ""}`,
       ]) {
         const p = document.createElement("p");
         p.textContent = text;
@@ -273,19 +275,19 @@
     assessment(data.assessment);
     $("source-status").textContent =
       data.source.status === "fresh"
-        ? "● เชื่อมต่อข้อมูลต้นทาง"
+        ? `● ${data.source.fallback ? "ข้อมูลสำรอง " : ""}${data.source.name}`
         : data.source.status === "stale"
           ? "● ใช้ข้อมูลที่เก็บไว้"
           : "● ต้นทางไม่พร้อมใช้งาน";
     $("source-status").className =
       `badge ${data.source.status === "fresh" ? "green" : "yellow"}`;
     $("station-count").textContent =
-      `${data.stations.length} สถานี · รัศมี ${data.radiusKm} กม.`;
+      `${data.stations.length} จุดตรวจวัด · รัศมี ${data.radiusKm} กม.`;
     $("data-status").textContent =
       data.source.status !== "fresh"
         ? `${data.source.message} • ข้อมูลที่เก็บไว้เมื่อ ${formatTime(data.source.fetchedAt)}`
         : data.stations.length
-          ? `พบ ${data.stations.length} สถานีในรัศมี ${data.radiusKm} กม. สีเทาคือข้อมูลเก่าหรือไม่ครบ`
+          ? `${data.source.message} • พบ ${data.stations.length} จุดตรวจวัดในรัศมี ${data.radiusKm} กม. สีเทาคือข้อมูลเก่าหรือไม่ครบ`
           : "ไม่พบสถานีในรัศมีนี้ ลองขยายรัศมีหรือเลือกพื้นที่อื่น";
     const s = data.stations[0];
     $("nearest").textContent = s?.name || "ไม่พบสถานี";

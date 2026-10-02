@@ -1,6 +1,6 @@
 # Water Impact Monitor
 
-Thai water-station dashboard for Mae Klong, Ratchaburi, Samut Songkhram and surrounding waterways. GPS and manually selected locations find nearby real ThaiWater measurements, with a Leaflet map and an explained **screening signal**, not a property-level flood forecast.
+Thai water-station dashboard for Mae Klong, Ratchaburi, Samut Songkhram and surrounding waterways. GPS and manually selected locations find nearby real ThaiWater / RID measurements, with a Leaflet map and an explained **screening signal**, not a property-level flood forecast.
 
 ## Run locally
 
@@ -26,7 +26,7 @@ Tests cover the verified upstream schema, numeric nulls, station coordinates, wa
 | Public frontend | `water-impact-monitor` | https://water-impact-monitor.onrender.com | Static, main, `echo ready`, publish `.` |
 | API and optional combined frontend | `water-impact-monitor-app` | https://water-impact-monitor-app.onrender.com | Node, main, `npm install`, `npm start`, Singapore, existing free plan |
 
-Both existing services deploy on pushes to `main`. `assets/config.js` points the canonical static hostname at the existing Node API. Other hosts use their own origin. This keeps the current public URL and requires no new service. The Node service also serves the frontend, so it can be used alone if hosting is later consolidated.
+Both services are configured for auto-deploy, but the live push test did not trigger builds. Render shows no connected Git provider; reconnect GitHub for this repository before claiming push-based auto-deployment. Current releases were manually triggered and verified. `assets/config.js` points the canonical static hostname at the existing Node API. Other hosts use their own origin. This keeps the current public URL and requires no new service. The Node service also serves the frontend, so it can be used alone if hosting is later consolidated.
 
 `npm install` / `npm ci` runs the checks through `postinstall`, so the existing Render Node build fails if they do not pass. A GitHub Actions template is provided in `docs/templates/github-actions-check.yml`; enabling that optional workflow requires GitHub authorization with the `workflow` scope. It is not enabled by this deployment.
 
@@ -51,10 +51,12 @@ Status codes: 200 for fresh or usable stale cache, 400 invalid parameters, 429 r
 ## Reliability and assessment
 
 - National data is fetched at most once per 60 seconds per process, independent of user coordinates. Concurrent requests share a fetch.
-- Upstream requests have an 8-second timeout, one retry, an 8 MiB body cap, content/schema validation and a 60-second retry backoff.
+- Upstream requests have an 8-second timeout, one retry, an 8 MiB body cap, content/schema validation and a 60-second retry backoff. HTTP 429 is not immediately retried: it respects `Retry-After` with at least 15 minutes of per-source cooldown. Access refusals are also not immediately retried.
+- ThaiWater is the primary source. If it fails, one bounded connection reads the independent RID public WebSocket INIT snapshot. The active source and fallback state are returned by the API and displayed. Each national snapshot is shared across all users; no user coordinates go to either upstream.
 - Last-known-good data survives upstream errors and is usable for up to six hours. Its original fetch timestamp is preserved. A JSON cache is written atomically to `.cache/water.json` when writable. Render's free disk is ephemeral, so cache persistence across deploys/restarts is not guaranteed.
-- Only station readings at most three hours old, with a known status and MSL water level, enter screening. Stale source data disables the score. Station-local levels are displayed separately and never treated as mean sea level.
+- Only station readings at most three hours old, with a known status and MSL water level, enter screening. RID station-local values can enter only when verified warning and critical thresholds use that same local datum. Stale source data disables the score. Station-local levels are displayed separately and never treated as mean sea level.
 - ThaiWater levels **1/2 = low water, 3 = normal, 4 = high water, 5 = overflow**. This is not a monotonic flood-warning scale.
+- RID warning/critical thresholds are kept separate from ThaiWater overflow/bank metadata. Critical RID readings are labeled "ถึงเกณฑ์วิกฤติ RID", never asserted to be measured flooding. Multiple gauge points at a gate are displayed separately so a high downstream reading is not hidden by a lower upstream reading.
 - Rise rate uses two distinct, timestamped readings observed by this service, not an assumed interval for the upstream previous value. It becomes available after observing another sensor update, normally minutes rather than seconds. The un-timed previous value is used only to label the trend.
 - The screening score is a heuristic from water status, station bank gap, straight-line distance and a timestamped rise rate where available. Reasons prioritize the station driving the score. It is not calibrated probability, a geographic inundation model, or an official warning.
 - Impact confidence remains low because user elevation, hydraulic connectivity, levees, drainage, tides, rainfall and flood history are not integrated. Missing input is visibly marked, never assumed safe.
@@ -67,6 +69,6 @@ Status codes: 200 for fresh or usable stale cache, 400 invalid parameters, 429 r
 2. Check the static root and its `/assets/config.js` and `/assets/app.js` are current.
 3. Check the Node `/healthz`, then `/api/water` with a known regional reference point and the static site's `Origin` header.
 4. Open the public site on a phone, grant Location, check accuracy and timestamps, and compare radius/map/list results. Test denied permission via manual fallback.
-5. Compare a station reading and timestamp against ThaiWater. Do not interpret a successful deploy or mocked GPS test as user acceptance of a flood forecast.
+5. Compare a station reading and timestamp against its attributed official source. Do not interpret a successful deploy or mocked GPS test as user acceptance of a flood forecast.
 
 Source verification and remaining integrations: [docs/SOURCES.md](docs/SOURCES.md). Original supplied handoff: [docs/HANDOFF.md](docs/HANDOFF.md).

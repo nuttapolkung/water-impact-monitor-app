@@ -139,8 +139,9 @@ export function createApp({
           radiusKm: radius,
           stations,
           source: {
-            name: "ThaiWater",
-            url: SOURCE_URL,
+            name: data.sourceName || "ThaiWater",
+            url: data.sourceUrl || SOURCE_URL,
+            fallback: Boolean(data.fallback),
             status: data.status,
             fetchedAt: data.fetchedAt,
             lastFailureAt: data.lastFailureAt,
@@ -148,7 +149,9 @@ export function createApp({
             cacheSeconds: 60,
             message:
               data.status === "fresh"
-                ? "เชื่อมต่อข้อมูลต้นทางได้"
+                ? data.fallback
+                  ? "ใช้ข้อมูลสำรองจาก RID เนื่องจากต้นทางหลักไม่พร้อม"
+                  : "เชื่อมต่อข้อมูลต้นทางได้"
                 : "ข้อมูลต้นทางชั่วคราวไม่พร้อมใช้งาน",
           },
           assessment: assess(stations, data.status),

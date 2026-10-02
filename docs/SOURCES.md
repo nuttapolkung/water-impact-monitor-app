@@ -26,11 +26,15 @@ The endpoint has no previous sensor timestamp alongside `waterlevel_msl_previous
 
 Initial 50 km query around the clearly labeled Damnoen Saduak reference coordinate (13.518, 99.954) found 15 stations, including Ban Phaeo / MKG005 on Khlong Damnoen Saduak, Phra Ram 2 / MKG006, Photharam / RAJ001 and RID K.55A on the Mae Klong. Counts and readings vary with the upstream data and selected radius; coordinates are not a claim about the user's actual position.
 
-## Candidate: Royal Irrigation Department
+## Integrated fallback: Royal Irrigation Department
 
 - [RID SWOC REST API documentation](https://swoc-api-service.rid.go.th/api/docs/) exposes water and rainfall endpoints including `/api/pier-tele-data/`, `/api/pier-hii-data/`, `/api/rainfall-hii-1hr/` and `/api/rainfall-hii-24hr/`.
 - An unauthenticated call to `/api/pier-tele-data/` returned HTTP 401 with a missing-login message. It is not configured as a working failover source.
-- [RID telemetry](https://telerid.rid.go.th/) and [RID hydromet](https://hydromet.rid.go.th/) are official public reference dashboards. Structured schemas, authorization, usage terms and independence from HII must be verified before wiring a fallback.
+- The [RID telemetry dashboard](https://telerid.rid.go.th/) uses `wss://telerid.rid.go.th/ws/public/`. A public `INIT` snapshot was retrieved without credentials. It contained 921 station metadata entries; normalization retained 693 water gauge points with numeric readings and a known datum in the observed snapshot. Values and counts change.
+- Verified schema: JSON envelope `message` contains a JSON string `{type: "INIT", data: {stationId: ...}}`; `location.x/y` are longitude/latitude, `measure.wl` selects water stations, `values.water_level_value_list.value` gives gauge readings, and `unixtime` is UTC Unix seconds. `cross_section[index]` matches the reading point and contains `parameter`, `unit`, `warning`, and `critical`. The official JS explicitly labels unit 0 as ม.รทก. and 1 as ม.รสม. Unknown units are omitted, not converted.
+- Threshold classifications match the official dashboard comparison: at/above critical is critical, at/above warning is watch. Missing/inconsistent thresholds remain unknown. These are RID thresholds, not proof of overflowing banks.
+- The independently served feed included Bang Nok Khwaek (TMK03), Wat Bang Khonthi Nai (TK.72), Bang Khonthi (TK.57), Ratchaburi and surrounding Mae Klong gauges. The observed 50 km Damnoen reference query found 17 gauge points. Upstream and downstream gauge readings at TMK03 remain distinct.
+- A single bounded connection per shared refresh reads INIT and closes; it is not a per-user persistent socket. [RID hydromet](https://hydromet.rid.go.th/) remains a public reference source.
 - Some RID stations are already supplied through ThaiWater, with agency attribution preserved; this does not constitute an independent upstream.
 
 ## Candidate: rain and tide
@@ -48,4 +52,8 @@ Initial 50 km query around the clearly labeled Damnoen Saduak reference coordina
 
 ## Remaining evidence
 
-Physical iPhone/Android GPS permission, acquisition and accuracy still require testing on those devices. Browser viewport tests and mocked GPS-state tests do not prove this. Independent upstream failover, rain/tide/elevation integration and calibrated flood-impact prediction remain separate work.
+Physical iPhone/Android GPS permission, acquisition and accuracy still require testing on those devices. Browser viewport tests and mocked GPS-state tests do not prove this. Rain/tide/elevation integration and calibrated flood-impact prediction remain separate work.
+
+## Hosted upstream behavior
+
+Render outbound requests to ThaiWater returned HTTP 429 on 2 October 2026 although local requests succeeded. The app respects throttling with per-source cooldown (at least 15 minutes or the longer Retry-After value), attempts the independent RID public feed, and clearly identifies the active source. It does not rotate proxies, invent readings or relabel a previous observation as live.

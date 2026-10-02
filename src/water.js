@@ -200,7 +200,11 @@ export function assess(stations, sourceStatus) {
   const valid = stations.filter(
     (s) =>
       s.dataQuality === "fresh" &&
-      s.waterLevelMsl !== null &&
+      (s.waterLevelMsl !== null ||
+        (s.waterLevelLocal !== null &&
+          s.thresholdDatum === "local" &&
+          s.warningLevel != null &&
+          s.criticalLevel != null)) &&
       s.situation !== "unknown",
   );
   if (sourceStatus !== "fresh" || !valid.length)
@@ -219,8 +223,11 @@ export function assess(stations, sourceStatus) {
   let score = 0;
   const evidence = [];
   for (const s of valid) {
-    let signal =
-      s.situation === "overflow" ? 90 : s.situation === "high" ? 50 : 12;
+    let signal = ["overflow", "critical"].includes(s.situation)
+      ? 90
+      : s.situation === "high"
+        ? 50
+        : 12;
     if (s.bankGapM !== null)
       signal = Math.max(
         signal,

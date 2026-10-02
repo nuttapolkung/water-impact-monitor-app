@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createWaterCache } from "../src/cache.js";
+import { createWaterCache, THAIWATER_SOURCE } from "../src/cache.js";
 
 const data = {
   waterlevel_data: {
@@ -30,6 +30,7 @@ test("concurrent requests share one upstream fetch and cached requests do not re
   let calls = 0;
   const cache = createWaterCache({
     file: null,
+    sources: [THAIWATER_SOURCE],
     logger,
     fetcher: async () => {
       calls++;
@@ -52,6 +53,7 @@ test("retry and backoff preserve last-known-good data without resetting its time
     fail = false;
   const cache = createWaterCache({
     file: null,
+    sources: [THAIWATER_SOURCE],
     logger,
     now: () => timestamp,
     ttlMs: 1000,
@@ -83,6 +85,7 @@ test("schema failures never poison the last-known-good cache", async () => {
     malformed = false;
   const cache = createWaterCache({
     file: null,
+    sources: [THAIWATER_SOURCE],
     logger,
     now: () => timestamp,
     ttlMs: 1000,
@@ -99,4 +102,75 @@ test("schema failures never poison the last-known-good cache", async () => {
   const stale = await cache.get();
   assert.equal(stale.status, "stale");
   assert.deepEqual(stale.stations, original.stations);
+});
+
+test("429 uses independent fallback, honors Retry-After and recovers the primary without hammering it", async () => {
+  let timestamp = Date.parse("2026-10-02T13:00:00Z"),
+    calls = 0,
+    fallbackCalls = 0,
+    recover = false;
+  const backup = {
+    name: "backup",
+    url: "test:backup",
+    normalize: (p) => p,
+    load: async () => {
+      fallbackCalls++;
+      return [{ id: "backup:1", name: "independent observation" }];
+    },
+  };
+  const cache = createWaterCache({
+    file: null,
+    logger,
+    now: () => timestamp,
+    sources: [THAIWATER_SOURCE, backup],
+    fetcher: async () => {
+      calls++;
+      return recover
+        ? response()
+        : new Response("{}", {
+            status: 429,
+            headers: { "Retry-After": "1800" },
+          });
+    },
+  });
+  const first = await cache.get();
+  assert.equal(first.status, "fresh");
+  assert.equal(first.sourceName, "backup");
+  assert.equal(first.fallback, true);
+  assert.equal(calls, 1);
+  timestamp += 60000;
+  await cache.get();
+  assert.equal(calls, 1);
+  assert.equal(fallbackCalls, 2);
+  recover = true;
+  timestamp += 1800000;
+  const primary = await cache.get();
+  assert.equal(primary.sourceName, "ThaiWater");
+  assert.equal(primary.fallback, false);
+  assert.equal(calls, 2);
+});
+
+test("all sources failing keeps the retry timestamp stable and disables assessment data", async () => {
+  let timestamp = Date.now(),
+    calls = 0;
+  const cache = createWaterCache({
+    file: null,
+    logger,
+    now: () => timestamp,
+    sources: [THAIWATER_SOURCE],
+    fetcher: async () => {
+      calls++;
+      return new Response("{}", {
+        status: 429,
+        headers: { "Retry-After": "3600" },
+      });
+    },
+  });
+  const unavailable = await cache.get();
+  timestamp += 5000;
+  const later = await cache.get();
+  assert.equal(later.status, "unavailable");
+  assert.deepEqual(later.stations, []);
+  assert.equal(later.nextRefreshAt, unavailable.nextRefreshAt);
+  assert.equal(calls, 1);
 });
