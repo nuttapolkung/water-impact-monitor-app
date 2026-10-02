@@ -4,7 +4,7 @@ Thai water-station dashboard for Mae Klong, Ratchaburi, Samut Songkhram and surr
 
 ## Run locally
 
-Requires Node.js 22 or 24. No runtime dependencies or API secrets are required.
+Requires Node.js 22 or 24. The only runtime dependency is the pinned ws WebSocket client. No API secrets are required.
 
 ```sh
 npm ci

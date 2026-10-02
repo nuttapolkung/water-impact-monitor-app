@@ -140,6 +140,12 @@ export function createWaterCache({
           return;
         } catch (error) {
           failure = error;
+          if (error.status && error.delay == null)
+            error.delay = retryDelay(
+              error.retryAfter,
+              now(),
+              error.status === 429 ? 15 * 60000 : retryAfterMs,
+            );
           // Respect upstream throttling and access refusals; never retry them immediately.
           if (error.status && error.status < 500) break;
           if (error.delay > retryAfterMs) break;

@@ -1,3 +1,4 @@
+import WebSocket from "ws";
 import { number } from "./water.js";
 
 export const RID_URL = "wss://telerid.rid.go.th/ws/public/";
@@ -10,7 +11,11 @@ export function fetchRidSnapshot({
   Socket = WebSocket,
 } = {}) {
   return new Promise((resolve, reject) => {
-    const socket = new Socket(RID_URL);
+    const socket = new Socket(RID_URL, {
+      handshakeTimeout: timeoutMs,
+      maxPayload: 8 * 1024 * 1024,
+      perMessageDeflate: false,
+    });
     let settled = false,
       opened = false;
     const startedAt = Date.now();
@@ -18,7 +23,8 @@ export function fetchRidSnapshot({
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      socket.close();
+      if (socket.terminate) socket.terminate();
+      else socket.close();
       if (error) reject(error);
       else resolve(value);
     };
@@ -31,6 +37,13 @@ export function fetchRidSnapshot({
         ),
       timeoutMs,
     );
+    socket.on?.("unexpected-response", (_request, response) => {
+      const error = new Error(`UPSTREAM_HTTP_${response.statusCode}`);
+      error.status = response.statusCode;
+      error.retryAfter = response.headers["retry-after"];
+      response.destroy();
+      finish(error);
+    });
     socket.addEventListener("open", () => {
       opened = true;
       logger.info(
@@ -41,6 +54,7 @@ export function fetchRidSnapshot({
       );
     });
     socket.addEventListener("error", (event) => {
+      if (settled) return;
       logger.warn(
         JSON.stringify({
           event: "rid_connection_error",
