@@ -76,6 +76,40 @@ test("RID rise rate uses distinct readings of the same sensor and retains it on 
   assert.equal(normalizeRid(p, current)[0].riseRateCmPerHour, 8);
 });
 
+test("implausible RID readings remain visible as missing data and never create alerts or rise rates", () => {
+  for (const raw of [32767, -32768, 10000, -10000]) {
+    const p = payload();
+    const old = normalizeRid(p);
+    p.data[383].values.water_level_value_list.value[0] = raw;
+    p.data[383].values.water_level_value_list.unixtime += 900;
+    const current = normalizeRid(p, old);
+    assert.equal(current[0].waterLevelMsl, null);
+    assert.equal(current[0].waterLevelLocal, null);
+    assert.equal(current[0].situation, "unknown");
+    assert.equal(current[0].riseRateCmPerHour, null);
+    const nearby = nearbyStations(
+      current,
+      { lat: 13.518, lon: 99.954 },
+      50,
+      time + 900000,
+    );
+    assert.equal(nearby[0].dataQuality, "missing");
+    assert.equal(assess([nearby[0]], "fresh").score, null);
+    // A later valid reading must not calculate a trend from the bad value,
+    // including a bad value stored by an older version of the app.
+    current[0].waterLevelMsl = raw;
+    p.data[383].values.water_level_value_list.value[0] = -0.25;
+    p.data[383].values.water_level_value_list.unixtime += 900;
+    const recovered = normalizeRid(p, current)[0];
+    assert.equal(recovered.waterLevelMsl, -0.25);
+    assert.equal(recovered.riseRateCmPerHour, null);
+  }
+  const p = payload();
+  p.data[383].cross_section[0].unit = 1;
+  p.data[383].values.water_level_value_list.value[0] = 32767;
+  assert.equal(normalizeRid(p)[0].waterLevelLocal, null);
+});
+
 test("RID snapshot connection closes after INIT or timeout and rejects invalid data", async () => {
   let socket;
   class FakeSocket extends EventTarget {

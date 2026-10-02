@@ -398,44 +398,208 @@ li {
 }
 .stations {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 14px;
 }
+.station {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  border-top: 3px solid var(--station-color, var(--line));
+  min-width: 0;
+}
+.station-green {
+  --station-color: var(--green);
+}
+.station-orange {
+  --station-color: var(--orange);
+}
+.station-red {
+  --station-color: var(--red);
+}
+.station-yellow {
+  --station-color: var(--yellow);
+}
+.station-gray {
+  --station-color: var(--gray);
+}
 .station-head {
   display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
 .station h3 {
-  font-size: 18px;
+  font-size: 19px;
+  line-height: 1.5;
 }
-.station .reading {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin: 14px 0 6px;
-}
-.station .reading small {
+.station-point {
+  color: #c8dddf;
+  background: #1a3540;
+  border: 1px solid #38545f;
+  border-radius: 6px;
+  padding: 2px 8px;
   font-size: 12px;
-  font-weight: 400;
-  margin-left: 6px;
-  color: var(--muted);
 }
 .station p {
-  font-size: 13px;
+  margin: 0;
+}
+.station-context {
   color: var(--muted);
-  margin: 5px 0;
+  font-size: 12px;
+}
+.station .station-status {
+  align-self: flex-start;
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: normal;
+  font-weight: 650;
+}
+.station-observation {
+  padding-top: 2px;
+}
+.station .reading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 2px 0;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+.station .reading strong {
+  font-size: 38px;
+  letter-spacing: -0.03em;
+}
+.reading-unit {
+  color: var(--muted);
+  font-size: 16px;
+}
+.station-datum {
+  color: var(--muted);
+  font-size: 12px;
+}
+.station-comparison {
+  padding: 12px;
+  border-radius: 9px;
+  background: #0819238c;
+  border: 1px solid #2d4852;
+}
+.station-difference {
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 650;
+}
+.station-scale {
+  margin-top: 12px;
+}
+.station-scale-track {
+  position: relative;
+  height: 8px;
+  margin: 8px 0 10px;
+  border-radius: 4px;
+  background: linear-gradient(
+    to right,
+    #438e77 0%,
+    #438e77 var(--watch-at),
+    #ad794e var(--watch-at),
+    #ad794e var(--critical-at),
+    #b65e6b var(--critical-at),
+    #b65e6b 100%
+  );
+}
+.station-scale-tick {
+  position: absolute;
+  top: -3px;
+  height: 14px;
+  width: 2px;
+  background: #e3ebeb;
+  transform: translateX(-50%);
+}
+.station-scale-tick.watch {
+  left: var(--watch-at);
+}
+.station-scale-tick.critical {
+  left: var(--critical-at);
+}
+.station-scale-level {
+  position: absolute;
+  left: var(--level-at);
+  top: -5px;
+  height: 18px;
+  width: 10px;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+  background: #fff;
+  box-shadow: 0 0 0 1px #fff;
+  transform: translateX(-50%);
+}
+.station-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: #c7d8df;
+  font-size: 11px;
+}
+.station-trend {
+  font-size: 13px;
+  color: #c6dddd;
+}
+.station-time {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: auto;
+}
+.station-details {
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.station-details summary,
+.source-details summary {
+  cursor: pointer;
+  color: #c4e1df;
+  min-height: 44px;
+  padding: 10px 0;
+}
+.station-details summary:hover,
+.source-details summary:hover {
+  color: var(--accent);
+}
+.station-facts {
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+.station-facts dt {
+  color: var(--muted);
+  margin-top: 8px;
+}
+.station-facts dd {
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.station-note {
+  font-size: 12px;
+  color: var(--muted);
 }
 .station .station-button {
-  font-size: 12px;
-  margin-top: 10px;
+  font-size: 13px;
   width: 100%;
   min-height: 44px;
+  margin: 0;
 }
-.station .badge {
+.source-details {
+  color: var(--muted);
   font-size: 12px;
+}
+.source-details p {
+  padding: 0 0 12px;
+  max-width: 860px;
 }
 .method {
   margin-top: 32px;

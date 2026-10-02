@@ -34,21 +34,26 @@ export function normalizeRid(payload, previous = []) {
       ? list.value
       : [row.values?.water_level?.value];
     for (let index = 0; index < readings.length; index++) {
-      const level = number(readings[index]);
+      const rawLevel = number(readings[index]);
       const cross = row.cross_section?.[index];
       // Verified official unit mapping: 0 = MSL (ม.รทก), 1 = station datum (ม.รสม).
       // Without a known datum, do not convert or label a value as MSL.
-      if (level === null || ![0, 1].includes(cross?.unit)) continue;
+      if (rawLevel === null || ![0, 1].includes(cross?.unit)) continue;
+      // The live feed has returned 32767 metres. Keep the station visible as
+      // missing data, rather than turn a physically implausible reading into
+      // a critical alert. This broad bound preserves negative and elevated MSL.
+      const level = Math.abs(rawLevel) < 10000 ? rawLevel : null;
       const warning = number(cross.warning),
         critical = number(cross.critical);
       const known = warning !== null && critical !== null && critical > warning;
-      const situation = !known
-        ? "unknown"
-        : level >= critical
-          ? "critical"
-          : level >= warning
-            ? "high"
-            : "normal";
+      const situation =
+        !known || level === null
+          ? "unknown"
+          : level >= critical
+            ? "critical"
+            : level >= warning
+              ? "high"
+              : "normal";
       const channel = clean(cross.parameter);
       const channelLabel =
         channel === "WL_UP"
@@ -103,10 +108,15 @@ export function normalizeRid(payload, previous = []) {
         sourceUrl: "https://telerid.rid.go.th/",
       };
       const old = oldById.get(s.id);
-      const oldLevel =
+      const oldReading =
         cross.unit === 0 ? old?.waterLevelMsl : old?.waterLevelLocal;
+      const oldLevel =
+        typeof oldReading === "number" && Math.abs(oldReading) < 10000
+          ? oldReading
+          : null;
       if (
         old &&
+        level !== null &&
         sensorUpdatedAt === old.sensorUpdatedAt &&
         oldLevel === level
       ) {
@@ -114,7 +124,12 @@ export function normalizeRid(payload, previous = []) {
         s.previousSensorUpdatedAt = old.previousSensorUpdatedAt ?? null;
         s.previousWaterLevelMsl = old.previousWaterLevelMsl ?? null;
         s.trend = old.trend ?? "unknown";
-      } else if (old?.sensorUpdatedAt && sensorUpdatedAt && oldLevel != null) {
+      } else if (
+        level !== null &&
+        old?.sensorUpdatedAt &&
+        sensorUpdatedAt &&
+        oldLevel != null
+      ) {
         const hours =
           (Date.parse(sensorUpdatedAt) - Date.parse(old.sensorUpdatedAt)) /
           3600000;

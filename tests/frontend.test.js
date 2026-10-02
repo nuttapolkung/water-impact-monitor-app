@@ -40,7 +40,7 @@ const data = {
   },
 };
 
-function harness({ geolocation = true } = {}) {
+function harness({ geolocation = true, responseData = data } = {}) {
   const elements = new Map(),
     events = new Map(),
     timers = new Map();
@@ -48,7 +48,8 @@ function harness({ geolocation = true } = {}) {
     gpsSuccess,
     gpsError,
     gpsOptions,
-    rejectFetch = false;
+    rejectFetch = false,
+    nextData = responseData;
   const element = () => ({
     textContent: "",
     value: "",
@@ -56,7 +57,11 @@ function harness({ geolocation = true } = {}) {
     disabled: false,
     children: [],
     attributes: {},
-    style: { setProperty() {} },
+    style: {
+      setProperty(key, value) {
+        this[key] = value;
+      },
+    },
     append(...nodes) {
       this.children.push(...nodes);
     },
@@ -83,7 +88,7 @@ function harness({ geolocation = true } = {}) {
     document: {
       hidden: false,
       getElementById: get,
-      createElement: element,
+      createElement: (tag) => ({ ...element(), tagName: tag }),
       querySelectorAll: () => presets,
       addEventListener: (event, callback) => events.set(event, callback),
     },
@@ -109,7 +114,11 @@ function harness({ geolocation = true } = {}) {
     fetch: async (url) => {
       requests.push(url);
       if (rejectFetch) throw new Error("network");
-      return { ok: true, status: 200, json: async () => structuredClone(data) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => structuredClone(nextData),
+      };
     },
     setTimeout: (callback) => {
       timers.set(++timerId, callback);
@@ -136,6 +145,9 @@ function harness({ geolocation = true } = {}) {
     options: () => gpsOptions,
     failFetch: () => {
       rejectFetch = true;
+    },
+    respond: (value) => {
+      nextData = value;
     },
   };
 }
@@ -228,4 +240,130 @@ test("backgrounding while GPS is pending does not discard the location result", 
   h.events.get("visibilitychange")();
   await settle();
   assert.equal(h.requests.length, 1);
+});
+
+const descendants = (node) => [node, ...node.children.flatMap(descendants)];
+const byClass = (node, className) =>
+  descendants(node).find((n) => n.className?.split(" ").includes(className));
+const ridData = (changes = {}, sourceStatus = "fresh") => ({
+  ...data,
+  stations: [
+    {
+      ...station,
+      source: "RID",
+      name: "ปตร.บางนกแขวก · ท้ายน้ำ",
+      code: "TMK03/WL_DOWN",
+      bankGapM: null,
+      thresholdDatum: "msl",
+      warningLevel: 2.5,
+      criticalLevel: 2.8,
+      ...changes,
+    },
+  ],
+  source: { name: "RID · เบราว์เซอร์", status: sourceStatus, fallback: true },
+});
+
+test("station cards compare actual water levels with matching warning/critical thresholds in centimeters", async () => {
+  for (const [level, situation, warning, critical, expected] of [
+    [2.18, "critical", 1.2, 1.5, "สูงกว่าเกณฑ์วิกฤติ 68 ซม."],
+    [2.26, "normal", 2.5, 2.8, "ยังต่ำกว่าเกณฑ์เฝ้าระวัง 24 ซม."],
+    [2.63, "high", 2.5, 2.8, "สูงกว่าเกณฑ์เฝ้าระวัง 13 ซม."],
+    [2.8, "critical", 2.5, 2.8, "ระดับน้ำถึงเกณฑ์วิกฤติ"],
+    [-0.2, "normal", -0.1, 0.1, "ยังต่ำกว่าเกณฑ์เฝ้าระวัง 10 ซม."],
+  ]) {
+    const h = harness({
+      responseData: ridData({
+        waterLevelMsl: level,
+        situation,
+        warningLevel: warning,
+        criticalLevel: critical,
+      }),
+    });
+    h.success();
+    await settle();
+    const card = h.get("stations").children[0];
+    assert.equal(byClass(card, "station-difference").textContent, expected);
+    assert.equal(card.children[0].children[0].textContent, "ปตร.บางนกแขวก");
+    assert.equal(byClass(card, "station-point").textContent, "ด้านท้ายน้ำ");
+    const scale = byClass(card, "station-scale");
+    assert.match(scale.attributes["aria-label"], /ในระดับอ้างอิงเดียวกัน/);
+    for (const key of ["--level-at", "--watch-at", "--critical-at"]) {
+      const position = parseFloat(scale.style[key]);
+      assert.ok(position >= 0 && position <= 100);
+    }
+  }
+});
+
+test("station comparisons never mix a local datum with MSL or render missing/stale data as a current warning", async () => {
+  const local = harness({
+    responseData: ridData({
+      waterLevelMsl: null,
+      waterLevelLocal: 2.63,
+      thresholdDatum: "local",
+      situation: "high",
+    }),
+  });
+  local.success();
+  await settle();
+  const card = local.get("stations").children[0];
+  assert.match(byClass(card, "station-datum").textContent, /เฉพาะสถานี/);
+  assert.equal(
+    byClass(card, "station-difference").textContent,
+    "สูงกว่าเกณฑ์เฝ้าระวัง 13 ซม.",
+  );
+  for (const responseData of [
+    ridData({ thresholdDatum: "local", waterLevelLocal: null }),
+    ridData({ warningLevel: null, criticalLevel: null, situation: "unknown" }),
+    ridData({ dataQuality: "stale", situation: "critical" }),
+    ridData({ situation: "critical" }, "stale"),
+  ]) {
+    const h = harness({ responseData });
+    h.success();
+    await settle();
+    const card = h.get("stations").children[0];
+    assert.equal(byClass(card, "station-scale"), undefined);
+    assert.doesNotMatch(
+      byClass(card, "station-difference").textContent,
+      /สูงกว่า/,
+    );
+    if (
+      responseData.source.status === "stale" ||
+      responseData.stations[0].dataQuality === "stale"
+    )
+      assert.match(byClass(card, "station-status").className, /gray/);
+  }
+});
+
+test("station details stay open while polling updates age and measurements; technical source messages stay in details", async () => {
+  const first = ridData({ waterLevelMsl: 2.63, situation: "high" });
+  first.source.message =
+    "เส้นทางบริการไม่พร้อม ใช้ข้อมูล RID ผ่านเบราว์เซอร์ (ไม่ส่งพิกัด)";
+  const h = harness({ responseData: first });
+  h.success();
+  await settle();
+  const original = h.get("stations").children[0],
+    details = byClass(original, "station-details");
+  details.open = true;
+  assert.equal(
+    byClass(original, "station-time").textContent,
+    "วัดล่าสุด 10 นาทีที่แล้ว",
+  );
+  assert.doesNotMatch(h.get("data-status").textContent, /เส้นทาง|เบราว์เซอร์/);
+  assert.match(h.get("source-detail").textContent, /ไม่ส่งพิกัด/);
+  h.respond({ ...first, checkedAt: "2026-10-02T12:32:05Z" });
+  h.get("refresh").onclick();
+  await settle();
+  assert.equal(h.get("stations").children[0], original);
+  assert.equal(details.open, true);
+  assert.equal(
+    byClass(original, "station-time").textContent,
+    "วัดล่าสุด 12 นาทีที่แล้ว",
+  );
+  h.respond(ridData({ waterLevelMsl: 2.64, situation: "high" }));
+  h.get("refresh").onclick();
+  await settle();
+  assert.equal(
+    byClass(h.get("stations").children[0], "station-details").open,
+    true,
+  );
 });

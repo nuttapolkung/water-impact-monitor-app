@@ -214,49 +214,276 @@
       markers.set(s.id, marker);
     }
   }
+  const element = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  };
+  function stationState(s) {
+    if (lastData?.source.status !== "fresh")
+      return { label: "ข้อมูลที่เก็บไว้", color: "gray", current: false };
+    if (s.dataQuality !== "fresh")
+      return {
+        label: s.dataQuality === "stale" ? "ข้อมูลเก่า" : "ข้อมูลไม่ครบ",
+        color: "gray",
+        current: false,
+      };
+    return {
+      label:
+        s.source === "RID"
+          ? {
+              critical: "ถึงเกณฑ์วิกฤติ",
+              high: "เฝ้าระวัง",
+              normal: "ต่ำกว่าเกณฑ์เฝ้าระวัง",
+              unknown: "ยังไม่มีเกณฑ์เทียบ",
+            }[s.situation] || "ยังไม่มีเกณฑ์เทียบ"
+          : {
+              overflow: "น้ำล้นตลิ่ง",
+              high: "น้ำมาก",
+              normal: "ระดับน้ำปกติ",
+              low: "น้ำน้อย",
+              critical_low: "น้ำน้อยวิกฤติ",
+              unknown: "ยังไม่มีเกณฑ์เทียบ",
+            }[s.situation] || "ยังไม่มีเกณฑ์เทียบ",
+      color: s.situation === "unknown" ? "gray" : s.color || "gray",
+      current: true,
+    };
+  }
+  function comparison(s, current) {
+    if (!current)
+      return { text: "รอข้อมูลล่าสุดเพื่อเทียบกับเกณฑ์", scale: null };
+    const level =
+      s.thresholdDatum === "local" ? s.waterLevelLocal : s.waterLevelMsl;
+    const known =
+      [level, s.warningLevel, s.criticalLevel].every(
+        (v) => typeof v === "number" && Number.isFinite(v),
+      ) &&
+      ["msl", "local"].includes(s.thresholdDatum) &&
+      s.criticalLevel > s.warningLevel;
+    const distance = (value) =>
+      Math.abs(value) < 0.01
+        ? "น้อยกว่า 1 ซม."
+        : `${Math.round(Math.abs(value) * 100)} ซม.`;
+    if (known) {
+      const critical = level >= s.criticalLevel,
+        watching = level >= s.warningLevel;
+      const boundary = critical ? s.criticalLevel : s.warningLevel;
+      const difference = level - boundary;
+      const boundaryName = critical ? "เกณฑ์วิกฤติ" : "เกณฑ์เฝ้าระวัง";
+      const low = Math.min(level, s.warningLevel),
+        high = Math.max(level, s.criticalLevel);
+      const span = Math.max(high - low, 0.3),
+        min = low - span * 0.2,
+        max = high + span * 0.2;
+      const position = (value) => ((value - min) / (max - min)) * 100;
+      return {
+        text:
+          Math.abs(difference) < 1e-8
+            ? `ระดับน้ำถึง${boundaryName}`
+            : `${critical || watching ? "สูงกว่า" : "ยังต่ำกว่า"}${boundaryName} ${distance(difference)}`,
+        scale: {
+          level: position(level),
+          watch: position(s.warningLevel),
+          critical: position(s.criticalLevel),
+          value: level,
+        },
+      };
+    }
+    if (
+      typeof s.waterLevelMsl === "number" &&
+      Number.isFinite(s.waterLevelMsl) &&
+      typeof s.bankGapM === "number" &&
+      Number.isFinite(s.bankGapM)
+    ) {
+      return {
+        text:
+          Math.abs(s.bankGapM) < 1e-8
+            ? "ระดับน้ำเท่าตลิ่งที่สถานีนี้"
+            : `${s.bankGapM > 0 ? "ยังต่ำกว่า" : "สูงกว่า"}ตลิ่งที่สถานี ${distance(s.bankGapM)}`,
+        scale: null,
+      };
+    }
+    return { text: "ยังไม่มีเกณฑ์เทียบระดับน้ำของสถานีนี้", scale: null };
+  }
+  function measuredAgo(value) {
+    const at = Date.parse(value),
+      checked = Date.parse(lastData?.checkedAt);
+    if (
+      !Number.isFinite(at) ||
+      !Number.isFinite(checked) ||
+      at - checked > 5 * 60000
+    )
+      return "ไม่ทราบเวลาตรวจวัด";
+    const minutes = Math.max(0, Math.floor((checked - at) / 60000));
+    if (minutes < 1) return "เพิ่งตรวจวัด";
+    if (minutes < 60) return `วัดล่าสุด ${minutes} นาทีที่แล้ว`;
+    if (minutes < 1440)
+      return `วัดล่าสุด ${Math.floor(minutes / 60)} ชม. ${minutes % 60} นาทีที่แล้ว`;
+    return `วัดเมื่อ ${Math.floor(minutes / 1440)} วันที่แล้ว`;
+  }
+  const stationTimeText = (s) =>
+    s.dataQuality === "missing"
+      ? "ยังไม่มีค่าตรวจวัดล่าสุด"
+      : measuredAgo(s.sensorUpdatedAt);
+  let stationTimes = [],
+    stationDetails = [];
   function renderStations() {
     const rows = lastData?.stations || [];
-    const fingerprint = JSON.stringify(rows) + shown;
+    for (const { node, station } of stationTimes)
+      node.textContent = stationTimeText(station);
+    const fingerprint = JSON.stringify(rows) + shown + lastData?.source.status;
     if (fingerprint === stationFingerprint) return;
     stationFingerprint = fingerprint;
+    const expanded = new Set(
+      stationDetails.filter(({ node }) => node.open).map(({ id }) => id),
+    );
+    stationTimes = [];
+    stationDetails = [];
     const cards = rows.slice(0, shown).map((s) => {
-      const card = document.createElement("article");
-      card.className = "station";
-      const head = document.createElement("div");
-      head.className = "station-head";
-      const name = document.createElement("h3");
-      name.textContent = s.name;
-      const badge = document.createElement("span");
-      badge.className = `badge ${s.dataQuality === "fresh" ? s.color : "gray"}`;
-      badge.textContent = qualityText(s);
-      head.append(name, badge);
+      const state = stationState(s),
+        relative = comparison(s, state.current);
+      const card = element("article", `station station-${state.color}`);
+      card.setAttribute("data-station-id", s.id);
+      const head = element("div", "station-head");
+      const point =
+        s.source === "RID"
+          ? s.name.match(/ · (เหนือน้ำ|ท้ายน้ำ|จุด \d+)$/)?.[1]
+          : null;
+      const name = point ? s.name.slice(0, s.name.lastIndexOf(" · ")) : s.name;
+      head.append(element("h3", "", name));
+      if (point)
+        head.append(
+          element(
+            "span",
+            "station-point",
+            point.startsWith("จุด") ? point : `ด้าน${point}`,
+          ),
+        );
       card.append(head);
-      const reading = document.createElement("div");
-      reading.className = "reading";
-      reading.textContent = levelText(s);
-      card.append(reading);
-      const gap =
-        s.warningLevel != null && s.criticalLevel != null
-          ? `เฝ้าระวัง ${s.warningLevel.toFixed(2)} · วิกฤติ ${s.criticalLevel.toFixed(2)} ${s.thresholdDatum === "msl" ? "ม.รทก." : "ม. ระดับเฉพาะสถานี"}`
-          : s.bankGapM === null
-            ? "ไม่มีระดับตลิ่งอ้างอิง"
-            : `${s.bankGapM > 0 ? "ต่ำกว่าตลิ่ง" : "ถึงหรือเกินตลิ่ง"} ${Math.abs(s.bankGapM).toFixed(2)} ม. ที่สถานี`;
-      for (const text of [
-        `${s.distanceKm.toFixed(1)} กม. · ${s.river || s.basin || s.province || "ไม่ระบุลำน้ำ"}`,
-        trendText(s),
-        gap,
-        `ตรวจวัด: ${formatTime(s.sensorUpdatedAt)}`,
-        `${s.source} · ${s.agency || "ไม่ระบุหน่วยงาน"}${s.code ? " · " + s.code : ""}`,
-      ]) {
-        const p = document.createElement("p");
-        p.textContent = text;
-        card.append(p);
+      const context = element(
+        "p",
+        "station-context",
+        `ห่าง ${s.distanceKm.toFixed(1)} กม. จากจุดที่เลือก`,
+      );
+      card.append(
+        context,
+        element("span", `badge station-status ${state.color}`, state.label),
+      );
+      const observation = element("div", "station-observation");
+      observation.append(element("p", "label", "ระดับน้ำที่สถานี"));
+      const reading = element("div", "reading");
+      const level = s.waterLevelMsl ?? s.waterLevelLocal;
+      reading.append(
+        element(
+          "strong",
+          "",
+          typeof level === "number" ? level.toFixed(2) : "—",
+        ),
+        element("span", "reading-unit", "เมตร"),
+      );
+      observation.append(
+        reading,
+        element(
+          "p",
+          "station-datum",
+          s.waterLevelMsl != null
+            ? "เทียบระดับทะเลปานกลาง"
+            : s.waterLevelLocal != null
+              ? "เทียบจุดอ้างอิงเฉพาะสถานี"
+              : "ยังไม่มีค่าตรวจวัด",
+        ),
+      );
+      card.append(observation);
+      const comparisonBox = element("div", `station-comparison ${state.color}`);
+      comparisonBox.append(element("p", "station-difference", relative.text));
+      if (relative.scale) {
+        const scale = element("div", "station-scale");
+        scale.setAttribute("role", "img");
+        scale.setAttribute(
+          "aria-label",
+          `ระดับน้ำ ${relative.scale.value.toFixed(2)} เมตร เกณฑ์เฝ้าระวัง ${s.warningLevel.toFixed(2)} เมตร เกณฑ์วิกฤติ ${s.criticalLevel.toFixed(2)} เมตร ในระดับอ้างอิงเดียวกัน`,
+        );
+        scale.style.setProperty("--watch-at", `${relative.scale.watch}%`);
+        scale.style.setProperty("--critical-at", `${relative.scale.critical}%`);
+        scale.style.setProperty("--level-at", `${relative.scale.level}%`);
+        const track = element("div", "station-scale-track");
+        track.setAttribute("aria-hidden", "true");
+        track.append(
+          element("span", "station-scale-tick watch"),
+          element("span", "station-scale-tick critical"),
+          element("span", "station-scale-level"),
+        );
+        const labels = element("div", "station-scale-labels");
+        labels.setAttribute("aria-hidden", "true");
+        labels.append(
+          element("span", "", `เฝ้าระวัง ${s.warningLevel.toFixed(2)} ม.`),
+          element("span", "", `วิกฤติ ${s.criticalLevel.toFixed(2)} ม.`),
+        );
+        scale.append(track, labels);
+        comparisonBox.append(scale);
       }
+      card.append(comparisonBox);
+      if (state.current && s.riseRateCmPerHour != null)
+        card.append(
+          element(
+            "p",
+            "station-trend",
+            `${s.riseRateCmPerHour > 0 ? "↑ เพิ่มขึ้น" : s.riseRateCmPerHour < 0 ? "↓ ลดลง" : "→ คงที่"} ${Math.abs(s.riseRateCmPerHour).toFixed(1)} ซม./ชม.`,
+          ),
+        );
+      const time = element("time", "station-time", stationTimeText(s));
+      if (s.sensorUpdatedAt) time.setAttribute("datetime", s.sensorUpdatedAt);
+      time.setAttribute("title", formatTime(s.sensorUpdatedAt));
+      card.append(time);
+      stationTimes.push({ node: time, station: s });
+      const details = element("details", "station-details");
+      details.open = expanded.has(s.id);
+      details.append(element("summary", "", "เกณฑ์และข้อมูลสถานี"));
+      const info = element("dl", "station-facts");
+      const datum =
+        s.waterLevelMsl != null
+          ? "เมตรจากระดับทะเลปานกลาง (ม.รทก.) ไม่ใช่ความลึกของน้ำ"
+          : s.waterLevelLocal != null
+            ? "เมตรจากจุดอ้างอิงเฉพาะสถานี เทียบข้ามสถานีโดยตรงไม่ได้"
+            : "ยังไม่ทราบระดับอ้างอิง";
+      for (const [label, value] of [
+        ["ระดับอ้างอิง", datum],
+        [
+          "เกณฑ์เฝ้าระวัง",
+          s.warningLevel != null
+            ? `${s.warningLevel.toFixed(2)} เมตร`
+            : "ไม่มีข้อมูล",
+        ],
+        [
+          "เกณฑ์วิกฤติ",
+          s.criticalLevel != null
+            ? `${s.criticalLevel.toFixed(2)} เมตร`
+            : "ไม่มีข้อมูล",
+        ],
+        ["ตรวจวัดเมื่อ", formatTime(s.sensorUpdatedAt)],
+        ["ทางน้ำ / ลุ่มน้ำ", s.river || s.basin || "ไม่ระบุ"],
+        ["แนวโน้ม", trendText(s)],
+        [
+          "แหล่งข้อมูล",
+          `${s.agency || s.source || "ไม่ระบุ"}${s.source ? " · " + s.source : ""}`,
+        ],
+        ["รหัสสถานี", s.code || "ไม่ระบุ"],
+      ])
+        info.append(element("dt", "", label), element("dd", "", value));
+      details.append(
+        info,
+        element(
+          "p",
+          "station-note",
+          "เกณฑ์นี้ใช้กับจุดวัดของสถานี ไม่ได้ยืนยันว่าจะท่วมจุดที่คุณเลือก",
+        ),
+      );
+      card.append(details);
+      stationDetails.push({ id: s.id, node: details });
       if (map) {
-        const button = document.createElement("button");
+        const button = element("button", "station-button", "ดูบนแผนที่ ↗");
         button.type = "button";
-        button.className = "station-button";
-        button.textContent = "ดูสถานีนี้บนแผนที่";
         button.setAttribute("aria-label", `ดู ${s.name} บนแผนที่`);
         button.onclick = () => {
           $("map").scrollIntoView({ block: "center", behavior: "auto" });
@@ -273,9 +500,14 @@
   function render(data) {
     lastData = data;
     assessment(data.assessment);
+    const sourceName = data.source.name?.startsWith("RID")
+      ? "กรมชลประทาน"
+      : data.source.name?.startsWith("ThaiWater")
+        ? "ThaiWater"
+        : data.source.name || "ข้อมูลสถานี";
     $("source-status").textContent =
       data.source.status === "fresh"
-        ? `● ${data.source.fallback ? "ข้อมูลสำรอง " : ""}${data.source.name}`
+        ? `● ${sourceName}${data.source.fallback ? " · ข้อมูลสำรอง" : ""}`
         : data.source.status === "stale"
           ? "● ใช้ข้อมูลที่เก็บไว้"
           : "● ต้นทางไม่พร้อมใช้งาน";
@@ -287,10 +519,15 @@
       : `${data.stations.length} จุดตรวจวัด · รัศมี ${data.radiusKm} กม.`;
     $("data-status").textContent =
       data.source.status !== "fresh"
-        ? `${data.source.message}${data.source.fetchedAt ? " • ข้อมูลที่เก็บไว้เมื่อ " + formatTime(data.source.fetchedAt) : ""}`
+        ? data.source.status === "stale"
+          ? "กำลังใช้ข้อมูลที่เก็บไว้ กรุณาตรวจเวลาวัดของแต่ละสถานี"
+          : "ยังรับข้อมูลสถานีไม่ได้ กรุณาตรวจอีกครั้งภายหลัง"
         : data.stations.length
-          ? `${data.source.message} • พบ ${data.stations.length} จุดตรวจวัดในรัศมี ${data.radiusKm} กม. สีเทาคือข้อมูลเก่าหรือไม่ครบ`
+          ? `พบ ${data.stations.length} จุดตรวจวัดใน ${data.radiusKm} กม. · ${data.stations.filter((s) => s.dataQuality === "fresh").length} จุดมีข้อมูลล่าสุด${data.stations.some((s) => s.dataQuality !== "fresh") ? " · ป้ายสีเทาคือข้อมูลเก่าหรือไม่ครบ" : ""}`
           : "ไม่พบสถานีในรัศมีนี้ ลองขยายรัศมีหรือเลือกพื้นที่อื่น";
+    $("source-details").hidden = false;
+    $("source-detail").textContent =
+      `${data.source.name || sourceName} · ${data.source.message || "ข้อมูลจากหน่วยงานเจ้าของสถานี"}${data.source.fetchedAt ? " · แอปรับข้อมูลเมื่อ " + formatTime(data.source.fetchedAt) : ""}`;
     const s = data.stations[0];
     $("nearest").textContent =
       s?.name || (unavailable ? "ยังไม่มีข้อมูล" : "ไม่พบสถานี");

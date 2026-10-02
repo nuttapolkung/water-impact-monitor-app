@@ -228,12 +228,19 @@
       </section>
       <section aria-labelledby="stations-title">
         <div class="section-head">
-          <h2 id="stations-title">รายละเอียดสถานี</h2>
-          <span class="muted">เรียงจากใกล้ไปไกล</span>
+          <div>
+            <p class="eyebrow">STATION READINGS / ระดับน้ำรายสถานี</p>
+            <h2 id="stations-title">ระดับน้ำแต่ละสถานี</h2>
+          </div>
+          <span class="muted">ใกล้จุดที่เลือกที่สุดก่อน</span>
         </div>
         <p id="data-status" role="status">
           เลือกตำแหน่งเพื่อดูสถานีในรัศมีที่ต้องการ
         </p>
+        <details id="source-details" class="source-details" hidden>
+          <summary>แหล่งข้อมูลและสถานะการเชื่อมต่อ</summary>
+          <p id="source-detail"></p>
+        </details>
         <div id="stations" class="stations"></div>
         <button id="show-more" type="button" hidden>แสดงสถานีเพิ่มเติม</button>
       </section>
