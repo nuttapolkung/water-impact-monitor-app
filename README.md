@@ -28,6 +28,8 @@ Tests cover the verified upstream schema, numeric nulls, station coordinates, wa
 
 Both existing services deploy on pushes to `main`. `assets/config.js` points the canonical static hostname at the existing Node API. Other hosts use their own origin. This keeps the current public URL and requires no new service. The Node service also serves the frontend, so it can be used alone if hosting is later consolidated.
 
+`npm install` / `npm ci` runs the checks through `postinstall`, so the existing Render Node build fails if they do not pass. A GitHub Actions template is provided in `docs/templates/github-actions-check.yml`; enabling that optional workflow requires GitHub authorization with the `workflow` scope. It is not enabled by this deployment.
+
 Leaflet 1.9.4 JS/CSS are vendored with their license and verified against the official SHA-256 values. Map tiles use the standard OpenStreetMap service with visible attribution, normal browser caching, and a referrer. Change `tileUrl` in `assets/config.js` when a dedicated tile service is needed. Do not add tile prefetching or offline tile downloads.
 
 The existing free Node service may sleep when idle, delaying the first API request by around a minute. The frontend displays a loading explanation and permits a 65-second request. A paid always-on service is a separate operating decision; no plan upgrade is applied here.
