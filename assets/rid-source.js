@@ -2,13 +2,13 @@ export const RID_URL = "wss://telerid.rid.go.th/ws/public/";
 
 // Read one public national INIT snapshot, then close. No location, subscription
 // message, credentials or persistent connection is supplied by this client.
-export function fetchRidBrowserSnapshot({
-  signal,
-  timeoutMs = 10000,
-  Socket = WebSocket,
-} = {}) {
+function readRidSocket(
+  url,
+  accept,
+  { signal, timeoutMs = 10000, Socket = WebSocket } = {},
+) {
   return new Promise((resolve, reject) => {
-    const socket = new Socket(RID_URL);
+    const socket = new Socket(url);
     let settled = false;
     const finish = (error, payload) => {
       if (settled) return;
@@ -45,11 +45,27 @@ export function fetchRidBrowserSnapshot({
           typeof envelope.message === "string"
             ? JSON.parse(envelope.message)
             : null;
-        if (payload?.type === "INIT") finish(null, payload);
+        if (accept(payload)) finish(null, payload);
       } catch (error) {
         finish(error);
       }
     });
     if (signal?.aborted) abort();
   });
+}
+
+export function fetchRidBrowserSnapshot(options = {}) {
+  return readRidSocket(RID_URL, (p) => p?.type === "INIT", options);
+}
+
+// This is the public station-detail socket used by the official dashboard.
+// It provides timestamped graph values for each separate gauge point.
+export function fetchRidBrowserStation({ stationId, ...options } = {}) {
+  if (!/^\d{1,8}$/.test(String(stationId)))
+    return Promise.reject(new Error("HISTORY_STATION_INVALID"));
+  return readRidSocket(
+    `wss://telerid.rid.go.th/ws/station/${stationId}/`,
+    (p) => !p?.type && p?.values && Array.isArray(p.cross_section),
+    options,
+  );
 }

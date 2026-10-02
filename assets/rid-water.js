@@ -1,4 +1,5 @@
 import { number } from "./water.js";
+import { waterRoute } from "./water-routes.js";
 
 const clean = (s) => (typeof s === "string" ? s.trim().slice(0, 200) : "");
 const timestamp = (value) => {
@@ -68,6 +69,7 @@ export function normalizeRid(payload, previous = []) {
       const s = {
         id: `rid:${id}:${index}`,
         stationId: `rid:${id}`,
+        gaugeParameter: channel,
         code: clean(row.code) + (multi ? `/${channel || index + 1}` : ""),
         name:
           (clean(row.name) || clean(row.code) || "สถานีไม่ระบุชื่อ") +
@@ -107,6 +109,8 @@ export function normalizeRid(payload, previous = []) {
         source: "RID",
         sourceUrl: "https://telerid.rid.go.th/",
       };
+      s.waterRoute = waterRoute(s);
+      if (s.waterRoute.status === "documented") s.river = s.waterRoute.waterway;
       const old = oldById.get(s.id);
       const oldReading =
         cross.unit === 0 ? old?.waterLevelMsl : old?.waterLevelLocal;

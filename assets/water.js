@@ -1,3 +1,5 @@
+import { waterRoute } from "./water-routes.js";
+
 export const SOURCE_URL =
   "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load";
 export const SENSOR_MAX_AGE_MS = 3 * 60 * 60 * 1000;
@@ -109,8 +111,10 @@ export function normalizeWater(payload, previous = []) {
       province: text(row.geocode?.province_name),
       agency: text(row.agency?.agency_name),
       source: "ThaiWater",
+      historyStationType: text(meta.tele_station_type),
       sourceUrl: "https://www.thaiwater.net/",
     };
+    s.waterRoute = waterRoute(s);
     s.bankGapM =
       waterLevelMsl !== null && s.bankLevelMsl !== null
         ? Math.round((s.bankLevelMsl - waterLevelMsl) * 1000) / 1000

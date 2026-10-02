@@ -147,6 +147,7 @@
       `ห่าง ${s.distanceKm.toFixed(1)} กม.`,
       `ตรวจวัด ${formatTime(s.sensorUpdatedAt)}`,
       s.river,
+      s.waterRoute?.summary,
       `${s.source} · ${s.agency || "ไม่ระบุหน่วยงาน"}`,
     ]) {
       if (!value) continue;
@@ -328,18 +329,213 @@
       : measuredAgo(s.sensorUpdatedAt);
   let stationTimes = [],
     stationDetails = [];
+  const historyResponses = new Map(),
+    historyPending = new Set();
+  let historyModule, historyImport, historyObserver;
+  let historyRows = new Map(),
+    visibleHistory = new Set();
+  const historyPeriods = [1, 3, 6, 24];
+  function paintHistory(row) {
+    const response = historyResponses.get(row.station.id);
+    const result =
+      response?.status === "ready" && historyModule
+        ? historyModule.compareHistory(row.station, response.data, {
+            sourceStatus: lastData?.source.status,
+          })
+        : null;
+    const fresh =
+      lastData?.source.status === "fresh" &&
+      row.station.dataQuality === "fresh";
+    row.grid.replaceChildren(
+      ...historyPeriods.map((hours) => {
+        const value = result?.comparisons.find((c) => c.hours === hours);
+        const cell = element("div", "history-cell");
+        cell.append(element("span", "history-period", `${hours} ชม.`));
+        const available = value?.status === "available";
+        const label = available
+          ? `${value.approximate ? "≈ " : ""}${value.direction === "rising" ? "↑ เพิ่ม" : value.direction === "falling" ? "↓ ลด" : "→ คงที่"}${value.deltaCm ? ` ${Math.abs(value.deltaCm).toFixed(1)} ซม.` : ""}`
+          : "—";
+        cell.append(
+          element(
+            "strong",
+            `history-value ${available ? value.direction : "missing"}`,
+            label,
+          ),
+        );
+        if (available)
+          cell.setAttribute(
+            "title",
+            `${formatTime(value.baselineAt)} → ${formatTime(result.anchorAt)} · ${value.baselineLevel.toFixed(3)} → ${value.currentLevel.toFixed(3)} เมตร`,
+          );
+        else cell.setAttribute("title", "ไม่มีค่าที่เทียบได้ในช่วงเวลานี้");
+        return cell;
+      }),
+    );
+    row.caption.textContent =
+      !fresh || result?.status === "stale"
+        ? "ข้อมูลล่าสุดเก่าหรือไม่ครบ ยังเทียบการเปลี่ยนแปลงไม่ได้"
+        : result?.status === "ready"
+          ? `เทียบจากเวลาวัด ${formatTime(result.anchorAt)}${result.comparisons.some((v) => v.status === "missing") ? " · — ไม่มีค่าเทียบ" : ""}${result.comparisons.some((v) => v.approximate) ? " · ≈ ใช้เวลาใกล้เคียง" : ""}`
+          : response?.status === "rate_limited"
+            ? "ต้นทางจำกัดการเรียกข้อมูลย้อนหลัง จะลองใหม่เมื่อครบเวลารอ"
+            : response || result?.status === "incompatible"
+              ? "ยังไม่มีข้อมูลย้อนหลังที่เทียบกับจุดวัดนี้ได้"
+              : historyPending.has(row.station.id)
+                ? "กำลังโหลดข้อมูลย้อนหลัง…"
+                : typeof IntersectionObserver === "undefined"
+                  ? "กดดูข้อมูลย้อนหลังเพื่อโหลดค่าจริง"
+                  : "ข้อมูลย้อนหลังจะโหลดเมื่อเลื่อนมาถึงจุดนี้";
+    row.button.hidden = typeof IntersectionObserver !== "undefined" || !fresh;
+    row.button.disabled =
+      historyPending.has(row.station.id) || response?.expiresAt > Date.now();
+    row.facts.replaceChildren();
+    if (result?.status === "ready") {
+      row.facts.append(
+        element(
+          "p",
+          "station-note",
+          "เทียบค่าของจุดวัดเดียวกันและระดับอ้างอิงเดียวกัน ใช้ค่าใกล้เวลาเป้าหมายไม่เกิน 15 นาที ไม่ประมาณค่าที่ขาดหาย",
+        ),
+      );
+      const values = element("dl", "station-facts");
+      for (const value of result.comparisons) {
+        values.append(
+          element("dt", "", `ย้อนหลัง ${value.hours} ชม.`),
+          element(
+            "dd",
+            "",
+            value.status === "available"
+              ? `${formatTime(value.baselineAt)} · ${value.baselineLevel.toFixed(3)} → ${value.currentLevel.toFixed(3)} เมตร${value.approximate ? ` · ช่วงจริง ${(value.actualMinutes / 60).toFixed(2)} ชม.` : ""}`
+              : "ไม่มีค่าภายในช่วงเวลาที่เทียบได้",
+          ),
+        );
+      }
+      row.facts.append(values);
+    }
+  }
+  async function loadHistory(id) {
+    const row = historyRows.get(id),
+      old = historyResponses.get(id);
+    if (
+      !row ||
+      document.hidden ||
+      lastData?.source.status !== "fresh" ||
+      row.station.dataQuality !== "fresh" ||
+      historyPending.has(id) ||
+      old?.expiresAt > Date.now()
+    )
+      return;
+    historyPending.add(id);
+    paintHistory(row);
+    try {
+      historyImport ||= import("./history.js");
+      historyModule = await historyImport;
+      const response = await historyModule.historySource.get(row.station);
+      if (historyResponses.size >= 256 && !historyResponses.has(id))
+        historyResponses.delete(historyResponses.keys().next().value);
+      historyResponses.set(id, response);
+    } catch {
+      historyResponses.set(id, {
+        status: "unavailable",
+        expiresAt: Date.now() + 60000,
+      });
+    } finally {
+      historyPending.delete(id);
+      if (historyRows.has(id)) paintHistory(historyRows.get(id));
+    }
+  }
+  function appendRoute(card, s, expanded) {
+    const route = s.waterRoute || {
+      status: "unknown",
+      summary: "ยังไม่มีข้อมูลเส้นทางน้ำของจุดนี้",
+      origin: "ยังยืนยันต้นทางของจุดนี้ไม่ได้",
+      nodes: [],
+      sources: [],
+    };
+    const preview = element("div", "station-route-preview");
+    if (route.status === "documented")
+      preview.append(element("strong", "", route.waterway));
+    preview.append(
+      element(
+        "p",
+        "",
+        route.status === "documented" ? route.summary : route.origin,
+      ),
+    );
+    card.append(preview);
+    const details = element("details", "station-route-details");
+    details.open = expanded.has(`${s.id}:route`);
+    details.append(
+      element("summary", "", "น้ำจุดนี้มาจากไหน"),
+      element("p", "route-summary", route.summary),
+    );
+    if (route.nodes?.length) {
+      const path = element("ol", "water-route");
+      route.nodes.forEach((name, i) => {
+        const node = element(
+          "li",
+          name.includes("จุดวัด") ? "route-current" : "",
+        );
+        if (i) {
+          const arrow = element("span", "route-arrow", route.connector || "→");
+          arrow.setAttribute("aria-hidden", "true");
+          node.append(arrow);
+        }
+        node.append(element("span", "", name));
+        path.append(node);
+      });
+      details.append(path);
+    }
+    const facts = element("dl", "station-facts");
+    facts.append(
+      element(
+        "dt",
+        "",
+        route.kind === "connection" ? "ฝั่งที่เชื่อมกัน" : "ต้นทางหลัก",
+      ),
+      element("dd", "", route.origin),
+    );
+    if (route.destination)
+      facts.append(
+        element("dt", "", "ปลายทาง / การเชื่อมต่อ"),
+        element("dd", "", route.destination),
+      );
+    details.append(facts);
+    if (route.note) details.append(element("p", "station-note", route.note));
+    const links = element("div", "route-sources");
+    for (const source of route.sources || []) {
+      if (!/^https:\/\//.test(source.url)) continue;
+      const link = element("a", "", source.label);
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      links.append(link);
+    }
+    details.append(links);
+    card.append(details);
+    stationDetails.push({ id: `${s.id}:route`, node: details });
+  }
   function renderStations() {
     const rows = lastData?.stations || [];
     for (const { node, station } of stationTimes)
       node.textContent = stationTimeText(station);
     const fingerprint = JSON.stringify(rows) + shown + lastData?.source.status;
-    if (fingerprint === stationFingerprint) return;
+    if (fingerprint === stationFingerprint) {
+      for (const [id, row] of historyRows) {
+        paintHistory(row);
+        if (visibleHistory.has(id)) void loadHistory(id);
+      }
+      return;
+    }
     stationFingerprint = fingerprint;
     const expanded = new Set(
       stationDetails.filter(({ node }) => node.open).map(({ id }) => id),
     );
     stationTimes = [];
     stationDetails = [];
+    historyObserver?.disconnect();
+    historyRows = new Map();
+    visibleHistory = new Set();
     const cards = rows.slice(0, shown).map((s) => {
       const state = stationState(s),
         relative = comparison(s, state.current);
@@ -437,6 +633,33 @@
       time.setAttribute("title", formatTime(s.sensorUpdatedAt));
       card.append(time);
       stationTimes.push({ node: time, station: s });
+      const history = element("div", "station-history");
+      history.append(
+        element("p", "history-heading", "ระดับน้ำเปลี่ยนไปเท่าไร"),
+      );
+      const grid = element("div", "history-grid"),
+        caption = element("p", "history-caption"),
+        historyFacts = element("div", "history-facts");
+      const historyButton = element(
+        "button",
+        "history-button",
+        "ดูข้อมูลย้อนหลัง",
+      );
+      historyButton.type = "button";
+      historyButton.setAttribute("aria-label", `ดูข้อมูลย้อนหลัง ${s.name}`);
+      historyButton.onclick = () => void loadHistory(s.id);
+      history.append(grid, caption, historyButton);
+      card.append(history);
+      const historyRow = {
+        station: s,
+        grid,
+        caption,
+        facts: historyFacts,
+        button: historyButton,
+      };
+      historyRows.set(s.id, historyRow);
+      paintHistory(historyRow);
+      appendRoute(card, s, expanded);
       const details = element("details", "station-details");
       details.open = expanded.has(s.id);
       details.append(element("summary", "", "เกณฑ์และข้อมูลสถานี"));
@@ -473,6 +696,7 @@
         info.append(element("dt", "", label), element("dd", "", value));
       details.append(
         info,
+        historyFacts,
         element(
           "p",
           "station-note",
@@ -495,6 +719,21 @@
       return card;
     });
     $("stations").replaceChildren(...cards);
+    if (typeof IntersectionObserver !== "undefined") {
+      historyObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const id = entry.target.getAttribute("data-station-id");
+            if (entry.isIntersecting) {
+              visibleHistory.add(id);
+              void loadHistory(id);
+            } else visibleHistory.delete(id);
+          }
+        },
+        { rootMargin: "160px" },
+      );
+      for (const card of cards) historyObserver.observe(card);
+    }
     $("show-more").hidden = shown >= rows.length;
   }
   function render(data) {

@@ -344,6 +344,7 @@ test("station details stay open while polling updates age and measurements; tech
   const original = h.get("stations").children[0],
     details = byClass(original, "station-details");
   details.open = true;
+  byClass(original, "station-route-details").open = true;
   assert.equal(
     byClass(original, "station-time").textContent,
     "วัดล่าสุด 10 นาทีที่แล้ว",
@@ -365,5 +366,27 @@ test("station details stay open while polling updates age and measurements; tech
   assert.equal(
     byClass(h.get("stations").children[0], "station-details").open,
     true,
+  );
+  assert.equal(
+    byClass(h.get("stations").children[0], "station-route-details").open,
+    true,
+  );
+});
+
+test("history cards expose all four periods and clearly explain unavailable data and unknown water origin", async () => {
+  const h = harness({ responseData: ridData() });
+  h.success();
+  await settle();
+  const card = h.get("stations").children[0],
+    grid = byClass(card, "history-grid");
+  assert.deepEqual(
+    grid.children.map((c) => c.children[0].textContent),
+    ["1 ชม.", "3 ชม.", "6 ชม.", "24 ชม."],
+  );
+  assert.ok(grid.children.every((c) => c.children[1].textContent === "—"));
+  assert.match(byClass(card, "history-caption").textContent, /โหลดค่าจริง/);
+  assert.match(
+    byClass(card, "station-route-details").children[2].children[1].textContent,
+    /ยังยืนยัน.*ไม่ได้/,
   );
 });
