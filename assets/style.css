@@ -403,6 +403,78 @@ li {
   gap: 12px;
   margin-top: 14px;
 }
+.skeleton,
+#observations[data-loading="true"] .metric-observation h3,
+#observations[data-loading="true"] .metric-observation .muted {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: #29414c;
+  border-radius: 6px;
+}
+.skeleton::after,
+#observations[data-loading="true"] .metric-observation h3::after,
+#observations[data-loading="true"] .metric-observation .muted::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, #ffffff16, transparent);
+  transform: translateX(-100%);
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+#observations[data-loading="true"] .metric-observation h3,
+#observations[data-loading="true"] .metric-observation .muted {
+  color: transparent;
+  user-select: none;
+}
+.loading-copy {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 14px;
+}
+.skeleton-gauge {
+  width: 150px;
+  height: 150px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+.skeleton-heading {
+  width: 75%;
+  height: 26px;
+}
+.skeleton-line {
+  width: 100%;
+  height: 15px;
+}
+.skeleton-short {
+  width: 55%;
+}
+.skeleton-badge {
+  width: 60%;
+  height: 28px;
+  border-radius: 20px;
+}
+.skeleton-reading {
+  width: 65%;
+  height: 42px;
+  margin: 8px 0;
+}
+.skeleton-tile {
+  height: 54px;
+}
+.skeleton-history {
+  width: 85%;
+  height: 24px;
+}
+.station-skeleton .history-grid {
+  margin: 10px 0;
+}
 .station {
   display: flex;
   flex-direction: column;
@@ -841,6 +913,12 @@ footer p {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  #observations[data-loading="true"] .metric-observation h3::after,
+  #observations[data-loading="true"] .metric-observation .muted::after {
+    animation: none;
+    background: none;
+  }
   * {
     scroll-behavior: auto !important;
   }

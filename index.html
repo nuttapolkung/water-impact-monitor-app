@@ -14,10 +14,10 @@
     <title>Water Impact Monitor · ติดตามน้ำรอบตัว</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/assets/vendor/leaflet.css" />
-    <link rel="stylesheet" href="/assets/style.css?v=20261003-history3" />
+    <link rel="stylesheet" href="/assets/style.css?v=20261003-loading" />
     <script src="/assets/vendor/leaflet.js" defer></script>
     <script src="/assets/config.js" defer></script>
-    <script src="/assets/app.js?v=20261003-history3" defer></script>
+    <script src="/assets/app.js?v=20261003-loading" defer></script>
   </head>
   <body>
     <a href="#dashboard" class="skip">ข้ามไปที่ข้อมูล</a>
@@ -94,7 +94,21 @@
             ><button type="submit">ใช้พิกัดนี้</button>
           </form>
         </div>
-        <div class="assessment">
+        <div
+          id="assessment-loading"
+          class="assessment"
+          aria-hidden="true"
+          hidden
+        >
+          <div class="skeleton skeleton-gauge"></div>
+          <div class="assessment-copy loading-copy">
+            <span class="skeleton skeleton-heading"></span>
+            <span class="skeleton skeleton-line"></span>
+            <span class="skeleton skeleton-line skeleton-short"></span>
+            <p class="muted">กำลังโหลดข้อมูลสถานีรอบพื้นที่…</p>
+          </div>
+        </div>
+        <div class="assessment" id="assessment-result">
           <div class="gauge" id="gauge" role="img" aria-label="ยังไม่มีคะแนน">
             <div class="gauge-inside">
               <strong id="score">—</strong><span>คะแนนสัญญาณ / 100</span>
@@ -136,7 +150,11 @@
           ><a href="tel:1784">โทร 1784</a>
         </div>
       </aside>
-      <section class="data-section" aria-labelledby="data-title">
+      <section
+        class="data-section"
+        id="observations"
+        aria-labelledby="data-title"
+      >
         <div class="section-head">
           <div>
             <p class="eyebrow">OBSERVATIONS / ข้อมูลตรวจวัด</p>
@@ -158,19 +176,19 @@
             <h3 id="place">ยังไม่ได้เลือก</h3>
             <p id="coords" class="muted">ไม่มีการใช้ตำแหน่งจาก IP</p>
           </article>
-          <article class="metric">
+          <article class="metric metric-observation">
             <span class="metric-icon">◉</span>
             <p class="label">สถานีใกล้ที่สุด</p>
             <h3 id="nearest">—</h3>
             <p id="near-distance" class="muted">รอข้อมูลสถานี</p>
           </article>
-          <article class="metric">
+          <article class="metric metric-observation">
             <span class="metric-icon">≋</span>
             <p class="label">ระดับน้ำสถานีใกล้สุด</p>
             <h3 id="near-level">—</h3>
             <p id="sensor-time" class="muted">เวลาตรวจวัด: —</p>
           </article>
-          <article class="metric">
+          <article class="metric metric-observation">
             <span class="metric-icon">↗</span>
             <p class="label">อัตราการเปลี่ยนระดับน้ำ</p>
             <h3 id="rise-rate">ยังไม่มีค่าต่อชั่วโมง</h3>
@@ -226,7 +244,7 @@
           ><span class="blue">● ตำแหน่งที่เลือก</span>
         </div>
       </section>
-      <section aria-labelledby="stations-title">
+      <section id="station-readings" aria-labelledby="stations-title">
         <div class="section-head">
           <div>
             <p class="eyebrow">STATION READINGS / ระดับน้ำรายสถานี</p>
@@ -241,6 +259,12 @@
           <summary>แหล่งข้อมูลและสถานะการเชื่อมต่อ</summary>
           <p id="source-detail"></p>
         </details>
+        <div
+          id="stations-loading"
+          class="stations"
+          aria-hidden="true"
+          hidden
+        ></div>
         <div id="stations" class="stations"></div>
         <button id="show-more" type="button" hidden>แสดงสถานีเพิ่มเติม</button>
       </section>

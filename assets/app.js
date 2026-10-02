@@ -350,6 +350,8 @@
     const fresh =
       lastData?.source.status === "fresh" &&
       row.station.dataQuality === "fresh";
+    const pending = fresh && historyPending.has(row.station.id);
+    row.grid.setAttribute("aria-busy", String(pending));
     row.grid.replaceChildren(
       ...historyPeriods.map((hours) => {
         const value = result?.comparisons.find((c) => c.hours === hours);
@@ -359,19 +361,25 @@
         const label = available
           ? `${value.approximate ? "≈ " : ""}${value.direction === "rising" ? "↑ เพิ่ม" : value.direction === "falling" ? "↓ ลด" : "→ คงที่"}${value.deltaCm ? ` ${Math.abs(value.deltaCm).toFixed(1)} ซม.` : ""}`
           : "—";
-        cell.append(
-          element(
-            "strong",
-            `history-value ${available ? value.direction : "missing"}`,
-            label,
-          ),
+        const reading = element(
+          "strong",
+          `history-value ${available ? value.direction : pending ? "skeleton skeleton-history" : "missing"}`,
+          !available && pending ? "" : label,
         );
+        if (!available && pending) reading.setAttribute("aria-hidden", "true");
+        cell.append(reading);
         if (available)
           cell.setAttribute(
             "title",
             `${formatTime(value.baselineAt)} → ${formatTime(result.anchorAt)} · ${value.baselineLevel.toFixed(3)} → ${value.currentLevel.toFixed(3)} เมตร`,
           );
-        else cell.setAttribute("title", "ไม่มีค่าที่เทียบได้ในช่วงเวลานี้");
+        else
+          cell.setAttribute(
+            "title",
+            pending
+              ? "กำลังโหลดข้อมูลย้อนหลัง"
+              : "ไม่มีค่าที่เทียบได้ในช่วงเวลานี้",
+          );
         return cell;
       }),
     );
@@ -380,12 +388,12 @@
         ? "ข้อมูลล่าสุดเก่าหรือไม่ครบ ยังเทียบการเปลี่ยนแปลงไม่ได้"
         : result?.status === "ready"
           ? `เทียบจากเวลาวัดของจุดนี้ ${formatTime(result.anchorAt)}${result.comparisons.some((v) => v.status === "missing") ? " · — ไม่มีค่าเทียบ" : ""}${result.comparisons.some((v) => v.approximate) ? " · ≈ ใช้เวลาใกล้เคียง" : ""}`
-          : response?.status === "rate_limited"
-            ? "ต้นทางจำกัดการเรียกข้อมูลย้อนหลัง จะลองใหม่เมื่อครบเวลารอ"
-            : response || result?.status === "incompatible"
-              ? "ยังไม่มีข้อมูลย้อนหลังที่เทียบกับจุดวัดนี้ได้"
-              : historyPending.has(row.station.id)
-                ? "กำลังโหลดข้อมูลย้อนหลัง…"
+          : pending
+            ? "กำลังโหลดข้อมูลย้อนหลัง…"
+            : response?.status === "rate_limited"
+              ? "ต้นทางจำกัดการเรียกข้อมูลย้อนหลัง จะลองใหม่เมื่อครบเวลารอ"
+              : response || result?.status === "incompatible"
+                ? "ยังไม่มีข้อมูลย้อนหลังที่เทียบกับจุดวัดนี้ได้"
                 : typeof IntersectionObserver === "undefined"
                   ? "กดดูข้อมูลย้อนหลังเพื่อโหลดค่าจริง"
                   : "ข้อมูลย้อนหลังจะโหลดเมื่อเลื่อนมาถึงจุดนี้";
@@ -828,17 +836,56 @@
     if (here && !document.hidden && navigator.onLine)
       timer = setTimeout(load, delay);
   }
+  function initLoading() {
+    $("stations-loading").replaceChildren(
+      ...Array.from({ length: 6 }, () => {
+        const card = element("div", "station station-skeleton");
+        for (const shape of [
+          "heading",
+          "line skeleton-short",
+          "badge",
+          "reading",
+          "line",
+          "line skeleton-short",
+        ])
+          card.append(element("span", `skeleton skeleton-${shape}`));
+        const grid = element("div", "history-grid");
+        for (let i = 0; i < 4; i++)
+          grid.append(element("span", "skeleton skeleton-tile"));
+        card.append(grid, element("span", "skeleton skeleton-line"));
+        return card;
+      }),
+    );
+  }
+  function setLoading(busy) {
+    const initial = busy && !lastData;
+    $("stations-loading").hidden = !initial;
+    $("assessment-loading").hidden = !initial;
+    $("assessment-result").hidden = initial;
+    $("station-readings").setAttribute("aria-busy", String(busy));
+    $("observations").setAttribute("aria-busy", String(busy));
+    $("observations").setAttribute("data-loading", String(initial));
+    $("refresh").disabled = busy;
+    $("refresh").textContent = busy ? "กำลังโหลด…" : "↻ ตรวจอีกครั้ง";
+  }
   async function load() {
     clearTimeout(timer);
-    if (!here || document.hidden || !navigator.onLine || active) return;
+    if (!here || document.hidden || active) return;
+    if (!navigator.onLine) {
+      showOffline();
+      return;
+    }
     const requestId = serial;
     const controller = new AbortController();
     active = controller;
     const timeout = setTimeout(() => controller.abort(), 65000);
-    $("refresh").disabled = true;
-    if (!lastData)
+    setLoading(true);
+    if (!lastData) {
+      $("source-status").textContent = "● กำลังโหลดข้อมูล";
+      $("source-status").className = "badge gray";
       $("data-status").textContent =
         "กำลังตรวจข้อมูลสถานี… การเชื่อมต่อครั้งแรกอาจใช้เวลาประมาณหนึ่งนาที";
+    }
     try {
       const query = new URLSearchParams({
         lat: here.lat,
@@ -890,18 +937,21 @@
         confidence: "insufficient",
         label: "ยังตรวจข้อมูลล่าสุดไม่ได้",
         reasons: [
-          "ค่าที่เห็นเป็นข้อมูลจากการตรวจครั้งก่อน กรุณาตรวจอีกครั้งเมื่อเชื่อมต่อได้",
+          lastData
+            ? "ค่าที่เห็นเป็นข้อมูลจากการตรวจครั้งก่อน กรุณาตรวจอีกครั้งเมื่อเชื่อมต่อได้"
+            : "ยังไม่มีข้อมูลสถานี กรุณาตรวจอีกครั้งเมื่อเชื่อมต่อได้",
         ],
       });
       $("data-status").textContent =
-        error.name === "AbortError"
-          ? "การเชื่อมต่อใช้เวลานาน กรุณาตรวจอีกครั้ง ข้อมูลที่แสดงอาจเก่าแล้ว"
-          : "เชื่อมต่อข้อมูลไม่สำเร็จ ข้อมูลที่แสดงอาจเก่าแล้ว ระบบจะลองตรวจอีกครั้ง";
+        (error.name === "AbortError"
+          ? "การเชื่อมต่อใช้เวลานาน กรุณาตรวจอีกครั้ง"
+          : "เชื่อมต่อข้อมูลไม่สำเร็จ ระบบจะลองตรวจอีกครั้ง") +
+        (lastData ? " · ข้อมูลที่แสดงอาจเก่าแล้ว" : "");
     } finally {
       clearTimeout(timeout);
       if (active === controller) {
         active = null;
-        $("refresh").disabled = false;
+        setLoading(false);
         schedule();
       }
     }
@@ -911,7 +961,7 @@
     if (active) active.abort();
     active = null;
     clearTimeout(timer);
-    $("refresh").disabled = false;
+    setLoading(false);
   }
   function setLocation(location) {
     locationSerial++;
@@ -921,10 +971,13 @@
     shown = 12;
     $("place").textContent = here.label;
     $("coords").textContent =
-      `${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}${here.accuracy ? ` · คลาดเคลื่อน ±${Math.round(here.accuracy)} ม.` : " · พิกัดที่เลือกเอง"}`;
-    $("location-status").textContent = here.accuracy
-      ? "ได้รับตำแหน่ง GPS แล้ว"
-      : "กำลังตรวจพื้นที่ที่เลือก ไม่ใช่ตำแหน่ง GPS ของคุณ";
+      `${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}${here.accuracy != null ? ` · คลาดเคลื่อน ±${Math.round(here.accuracy)} ม.` : here.default ? " · จุดอ้างอิงเริ่มต้น" : " · พิกัดที่เลือกเอง"}`;
+    $("location-status").textContent =
+      here.accuracy != null
+        ? "ได้รับตำแหน่ง GPS แล้ว"
+        : here.default
+          ? "ใช้จุดอ้างอิงดำเนินสะดวกอัตโนมัติ ไม่ใช่ตำแหน่ง GPS ของคุณ"
+          : "กำลังตรวจพื้นที่ที่เลือก ไม่ใช่ตำแหน่ง GPS ของคุณ";
     $("manual-lat").value = here.lat;
     $("manual-lon").value = here.lon;
     $("nearest").textContent = $("near-level").textContent = "—";
@@ -935,53 +988,68 @@
     $("checked-time").textContent = "หน้าเว็บตรวจล่าสุด: —";
     $("fetched-time").textContent = "แอปรับข้อมูลต้นทาง: —";
     $("station-count").textContent = "กำลังค้นหา";
+    $("source-details").hidden = true;
     assessment();
     renderStations();
     updateMap([]);
     load();
   }
-  function openManual() {
-    $("manual-location").hidden = false;
-    $("manual-toggle").setAttribute("aria-expanded", "true");
+  function locationUnavailable(reason) {
+    if (!here) setLocation({ ...presets.damnoen, default: true });
+    $("location-status").textContent =
+      `${reason} · ${here.default ? "ใช้จุดอ้างอิงดำเนินสะดวกอัตโนมัติ ไม่ใช่ตำแหน่ง GPS ของคุณ" : "ยังใช้พื้นที่เดิมที่แสดงอยู่"} สามารถเลือกพื้นที่อื่นได้`;
   }
   function locate() {
     if (requestingGps) return;
     if (!navigator.geolocation || !window.isSecureContext) {
-      $("location-status").textContent =
-        "เบราว์เซอร์นี้ไม่รองรับ GPS หรือไม่ได้เปิดผ่าน HTTPS กรุณาเลือกพื้นที่หรือใส่พิกัด";
-      openManual();
+      locationUnavailable(
+        "เบราว์เซอร์นี้ไม่รองรับ GPS หรือไม่ได้เปิดผ่าน HTTPS",
+      );
       return;
     }
     requestingGps = true;
     $("locate").disabled = true;
     $("location-status").textContent = "กำลังขออนุญาตและค้นหาตำแหน่ง GPS…";
     const gpsSerial = locationSerial;
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        requestingGps = false;
-        $("locate").disabled = false;
-        if (gpsSerial !== locationSerial) return;
-        setLocation({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          label: "ตำแหน่ง GPS ปัจจุบัน",
-        });
-      },
-      (error) => {
-        requestingGps = false;
-        $("locate").disabled = false;
-        if (gpsSerial !== locationSerial) return;
-        $("location-status").textContent =
-          {
-            1: "ไม่ได้รับอนุญาตใช้ตำแหน่ง เปิดสิทธิ์ Location ในการตั้งค่าเบราว์เซอร์ หรือเลือกพื้นที่ด้านล่าง",
-            2: "ไม่สามารถหาตำแหน่ง GPS ได้ ลองใหม่หรือเลือกพื้นที่ด้านล่าง",
-            3: "การค้นหาตำแหน่ง GPS หมดเวลา ลองใหม่หรือเลือกพื้นที่ด้านล่าง",
-          }[error.code] || "อ่านตำแหน่งไม่ได้ กรุณาเลือกพื้นที่หรือใส่พิกัด";
-        openManual();
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
-    );
+    let finished = false,
+      gpsTimeout;
+    const finish = () => {
+      if (finished) return false;
+      finished = true;
+      clearTimeout(gpsTimeout);
+      requestingGps = false;
+      $("locate").disabled = false;
+      return gpsSerial === locationSerial;
+    };
+    const fail = (error) => {
+      if (!finish()) return;
+      locationUnavailable(
+        {
+          1: "ไม่ได้รับอนุญาตใช้ตำแหน่ง",
+          2: "ไม่สามารถหาตำแหน่ง GPS ได้",
+          3: "การค้นหาตำแหน่ง GPS หมดเวลา",
+        }[error?.code] || "อ่านตำแหน่งไม่ได้",
+      );
+    };
+    // Browser GPS timeouts can exclude time spent waiting for permission.
+    gpsTimeout = setTimeout(() => fail({ code: 3 }), 15000);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!finish()) return;
+          setLocation({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            label: "ตำแหน่ง GPS ปัจจุบัน",
+          });
+        },
+        fail,
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+      );
+    } catch (error) {
+      fail(error);
+    }
   }
   $("locate").onclick = locate;
   $("manual-toggle").onclick = () => {
@@ -1020,9 +1088,11 @@
       resetRequest();
     } else load();
   });
-  window.addEventListener("offline", () => {
+  function showOffline() {
     resetRequest();
-    $("data-status").textContent = "ออฟไลน์ ข้อมูลที่แสดงเป็นการตรวจครั้งก่อน";
+    $("data-status").textContent = lastData
+      ? "ออฟไลน์ ข้อมูลที่แสดงเป็นการตรวจครั้งก่อน"
+      : "ออฟไลน์ เชื่อมต่ออินเทอร์เน็ตเพื่อโหลดข้อมูลสถานี";
     assessment({
       score: null,
       level: "unknown",
@@ -1032,8 +1102,10 @@
     });
     $("source-status").textContent = "● ออฟไลน์";
     $("source-status").className = "badge yellow";
-  });
+  }
+  window.addEventListener("offline", showOffline);
   window.addEventListener("online", load);
   initMap();
+  initLoading();
   locate();
 })();
