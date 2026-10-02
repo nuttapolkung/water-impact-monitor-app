@@ -57,3 +57,7 @@ Physical iPhone/Android GPS permission, acquisition and accuracy still require t
 ## Hosted upstream behavior
 
 Render outbound requests to ThaiWater returned HTTP 429 on 2 October 2026 although local requests succeeded. The app respects throttling with per-source cooldown (at least 15 minutes or the longer Retry-After value), attempts the independent RID public feed, and clearly identifies the active source. It does not rotate proxies, invent readings or relabel a previous observation as live.
+
+Hosted RID connections also timed out before their TLS/WebSocket handshake completed, with an explicit 30-second bound; local retrieval continued to succeed. The cause beyond this observed network failure is not established. The dashboard therefore has an explicitly labeled browser fallback to the same public CORS-enabled ThaiWater endpoint, with shared normalization, a per-page one-minute cache, request/body bounds and 429 backoff. No GPS coordinates or cookies are sent in that national-data request. This restores a route for the browser without claiming that the hosted proxy can retrieve live upstream data.
+
+The official DWR listing also points to the Mae Klong JSON service at `https://tele-maeklong.dwr.go.th/webservice/webservice_mk_Json`. It returned records dated 23 August 2026 and zero-valued observations during the October check; it is not used as a fresh fallback.

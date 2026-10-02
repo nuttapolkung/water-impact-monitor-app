@@ -308,7 +308,7 @@
     $("checked-time").textContent =
       `หน้าเว็บตรวจล่าสุด: ${formatTime(data.checkedAt)}`;
     $("fetched-time").textContent =
-      `บริการรับข้อมูลต้นทาง: ${formatTime(data.updatedAt)}`;
+      `แอปรับข้อมูลต้นทาง: ${formatTime(data.updatedAt)}`;
     renderStations();
     updateMap(data.stations);
   }
@@ -342,12 +342,27 @@
           cache: "no-store",
         },
       );
-      const data = await response.json();
+      let data = await response.json();
       if (requestId !== serial) return;
       if (!data.source || !Array.isArray(data.stations) || !data.assessment)
         throw new Error(data.message || "ข้อมูลจากบริการไม่ครบ");
       if (!response.ok && response.status !== 503)
         throw new Error(data.message || "บริการไม่พร้อมใช้งาน");
+      if (response.status === 503 && data.source.status === "unavailable") {
+        try {
+          const { browserSource } = await import("./browser-source.js");
+          data = await browserSource.get({
+            location: { lat: here.lat, lon: here.lon },
+            radiusKm: +$("radius").value,
+            version: data.version,
+            signal: controller.signal,
+          });
+          if (requestId !== serial) return;
+        } catch {
+          if (requestId !== serial) return;
+          data.source.message += " • เส้นทางสำรองผ่านเบราว์เซอร์ยังไม่พร้อม";
+        }
+      }
       render(data);
     } catch (error) {
       if (requestId !== serial) return;
@@ -402,7 +417,7 @@
     $("rise-rate").textContent = "ยังไม่มีค่าต่อชั่วโมง";
     $("trend").textContent = "ต้องมีเวลาตรวจวัดสองครั้ง";
     $("checked-time").textContent = "หน้าเว็บตรวจล่าสุด: —";
-    $("fetched-time").textContent = "บริการรับข้อมูลต้นทาง: —";
+    $("fetched-time").textContent = "แอปรับข้อมูลต้นทาง: —";
     $("station-count").textContent = "กำลังค้นหา";
     assessment();
     renderStations();
