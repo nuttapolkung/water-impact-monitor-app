@@ -1,82 +1,300 @@
-<!doctype html><html lang="th"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Water Impact Monitor</title>
-<style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:#06131e;color:#eef8ff}
-main{width:min(1180px,100%);margin:auto;padding:clamp(12px,3vw,28px)}
-.hero{background:linear-gradient(135deg,#102d45,#0b1e2d);border:1px solid #21465f;border-radius:24px;padding:clamp(18px,4vw,34px)}
-.top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
-h1{font-size:clamp(24px,5vw,44px);margin:0}.sub{color:#9fb5c7;margin-top:6px}
-.badge{padding:8px 12px;border-radius:999px;background:#17344a;font-size:13px}
-.impact{margin-top:22px;display:grid;grid-template-columns:160px 1fr;gap:22px;align-items:center}
-.gauge{width:150px;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:conic-gradient(#4dd493 0 25%,#203a4d 25%);position:relative}
-.gauge:after{content:"";position:absolute;inset:13px;border-radius:50%;background:#0d2232}.gauge>div{z-index:1;text-align:center}.score{font-size:42px;font-weight:900}
-.verdict{font-size:clamp(23px,4vw,38px);font-weight:900}.desc{color:#b5c7d5;line-height:1.55}
-.metrics,.stations{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}
-.card{background:#0d2131;border:1px solid #1c4059;border-radius:18px;padding:16px}.label{color:#91a9bb;font-size:13px}.value{font-size:26px;font-weight:850;margin-top:5px}
-.controls{display:flex;gap:9px;flex-wrap:wrap;margin:16px 0}button,select{border:0;border-radius:12px;padding:11px 14px;font-size:14px}button{font-weight:750;cursor:pointer}
-.station .head{display:flex;justify-content:space-between;gap:8px}.station .wl{font-size:28px;font-weight:900;margin:12px 0 4px}.distance{font-size:13px;color:#8fa8ba}
-.bar{height:8px;border-radius:9px;background:#19384c;margin-top:12px;overflow:hidden}.fill{height:100%;background:currentColor}
-.green{color:#55db9a}.yellow{color:#ffd166}.orange{color:#ff994d}.red{color:#ff6479}
-.note{font-size:12px;color:#8299aa;line-height:1.5;margin-top:18px}
-#msg{white-space:pre-wrap;color:#9fb5c7}
-@media(max-width:760px){.impact{grid-template-columns:1fr;text-align:center}.gauge{margin:auto}.metrics{grid-template-columns:1fr 1fr}.stations{grid-template-columns:1fr}}
-@media(max-width:420px){main{padding:10px}.hero{border-radius:18px;padding:16px}.metrics{grid-template-columns:1fr}.controls>*{flex:1}.gauge{width:130px}.score{font-size:36px}}
-</style></head><body><main>
-<section class="hero">
-<div class="top"><div><h1>🌊 Water Impact Monitor</h1><div class="sub">ประเมินผลกระทบจากระดับน้ำรอบตำแหน่งของคุณ</div></div><div id="fresh" class="badge">● รอตำแหน่ง</div></div>
-<div class="impact">
-<div id="gauge" class="gauge"><div><div id="score" class="score">—</div><div>ความเสี่ยง</div></div></div>
-<div><div class="label">ผลประเมินตำแหน่งปัจจุบัน</div><div id="verdict" class="verdict">กำลังรอ Location</div>
-<div id="explain" class="desc">ระบบจะหาสถานีรอบตัว เรียงตามระยะทาง และประเมินจากสถานะสถานี ระยะห่าง และแนวโน้มระดับน้ำ</div></div>
-</div>
-<div class="metrics">
-<div class="card"><div class="label">📍 ตำแหน่งของคุณ</div><div id="place" class="value">ยังไม่ได้รับ</div><div id="coords" class="distance"></div></div>
-<div class="card"><div class="label">📡 สถานีใกล้ที่สุด</div><div id="nearest" class="value">—</div><div id="nearDist" class="distance">—</div></div>
-<div class="card"><div class="label">💧 ระดับน้ำสถานีใกล้สุด</div><div id="nearLevel" class="value">—</div><div id="trend" class="distance">—</div></div>
-</div></section>
-
-<div class="controls"><button id="locate">📍 ใช้ Location ปัจจุบัน</button><button id="refresh">↻ รีเฟรช</button>
-<select id="radius"><option value="20">20 กม.</option><option value="50" selected>50 กม.</option><option value="100">100 กม.</option></select></div>
-<div id="msg"></div><div id="stations" class="stations"></div>
-<div class="note">* “ผลกระทบ” เป็นการคัดกรองเบื้องต้นจากข้อมูลสถานี ไม่ใช่แบบจำลองน้ำท่วมเฉพาะแปลงที่ดิน เพราะระดับน้ำที่สถานีเพียงอย่างเดียวไม่บอกระดับความสูงของบ้าน แนวคันกั้นน้ำ การระบายน้ำ หรือเส้นทางการไหลทั้งหมดได้ หน้าเว็บตรวจข้อมูลทุก 5 วินาที แต่ค่าต้นทางเปลี่ยนตามรอบของสถานี</div>
-</main><script>
-const API="https://api-v3.thaiwater.net/api/v1/thaiwater30/public/waterlevel_load";let here=null;
-const $=s=>document.querySelector(s), num=v=>{v=Number(v);return Number.isFinite(v)?v:null}, txt=v=>typeof v==="object"?(v?.th||v?.en||""):(v??"");
-const get=(o,p)=>p.split(".").reduce((a,k)=>a?.[k],o);
-function hav(a,b,c,d){let R=6371,p=Math.PI/180,x=(c-a)*p,y=(d-b)*p,q=Math.sin(x/2)**2+Math.cos(a*p)*Math.cos(c*p)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(q))}
-function coord(r){return[num(r.latitude??r.lat??get(r,"station.latitude")??get(r,"geocode.latitude")),num(r.longitude??r.long??r.lng??get(r,"station.longitude")??get(r,"geocode.longitude"))]}
-function state(r){let s=num(r.situation_level)||1;return s>=5?["ล้นตลิ่ง","red",100]:s==4?["วิกฤต","red",85]:s==3?["เตือนภัย","orange",65]:s==2?["เฝ้าระวัง","yellow",40]:["ปกติ","green",12]}
-function assess(rows){
- if(!rows.length)return{score:null,label:"ข้อมูลไม่เพียงพอ",why:"ไม่พบสถานีที่มีพิกัดในรัศมีที่เลือก"};
- let risk=0, factors=[];
- rows.slice(0,8).forEach(r=>{let [lab,cl,base]=state(r), proximity=Math.max(.15,1-r._d/100), v=base*proximity;risk=Math.max(risk,v);if(base>=40)factors.push(`${lab} ${r._d.toFixed(1)} กม.`)});
- risk=Math.round(Math.min(100,risk));
- let label=risk>=75?"มีโอกาสได้รับผลกระทบสูง":risk>=50?"มีโอกาสได้รับผลกระทบ":risk>=25?"ควรเฝ้าระวัง":"ยังไม่พบสัญญาณเสี่ยงสูง";
- return{score:risk,label,why:factors.length?`พบสถานีที่ต้องติดตาม: ${factors.slice(0,3).join(" • ")}`:"สถานีใกล้เคียงที่ตรวจพบยังอยู่ในระดับปกติ"};
-}
-function showAssessment(rows){
- let a=assess(rows),sc=a.score??0, color=sc>=75?"#ff6479":sc>=50?"#ff994d":sc>=25?"#ffd166":"#55db9a";
- $("#score").textContent=a.score==null?"—":a.score;$("#verdict").textContent=a.label;$("#verdict").style.color=color;$("#explain").textContent=a.why;
- $("#gauge").style.background=`conic-gradient(${color} 0 ${sc}%,#203a4d ${sc}% 100%)`;
-}
-async function load(){
- if(!here){$("#msg").textContent="กรุณากดใช้ Location ปัจจุบัน";return}
- $("#msg").textContent="กำลังอ่านข้อมูลสถานี…";
- try{
- let res=await fetch(API,{headers:{Accept:"application/json"}});if(!res.ok)throw Error("HTTP "+res.status);let j=await res.json();
- let rows=j?.waterlevel_data?.data||j?.data||[],rad=+$("#radius").value;
- rows=rows.map(r=>{let [a,b]=coord(r);return{...r,_lat:a,_lon:b,_d:a!=null&&b!=null?hav(here.lat,here.lon,a,b):99999}}).filter(r=>r._d<=rad).sort((a,b)=>a._d-b._d);
- render(rows);showAssessment(rows);$("#fresh").textContent="● อัปเดต "+new Date().toLocaleTimeString("th-TH");$("#msg").textContent=`พบ ${rows.length} สถานีในรัศมี ${rad} กม.`;
- }catch(e){$("#msg").textContent="อ่าน API ไม่สำเร็จ: "+e.message+"\nสำหรับใช้งานจริงควรวาง backend proxy เพื่อแก้ CORS และเพิ่ม cache/failover";}
-}
-function render(rows){
- let box=$("#stations");box.innerHTML="";let r0=rows[0];
- if(r0){let nm=txt(get(r0,"station.tele_station_name"))||txt(r0.station_name)||"สถานี";$("#nearest").textContent=nm;$("#nearDist").textContent=r0._d.toFixed(1)+" กม. จากคุณ";let wl=num(r0.waterlevel_msl??r0.waterlevel_m),pr=num(r0.waterlevel_msl_previous);$("#nearLevel").textContent=wl==null?"—":wl.toFixed(2)+" ม.รทก.";$("#trend").textContent=wl!=null&&pr!=null?((wl-pr)>=0?"▲ ":"▼ ")+Math.abs(wl-pr).toFixed(2)+" ม.":"ไม่มีค่าเทียบก่อนหน้า"}
- else{$("#nearest").textContent=$("#nearLevel").textContent="—";$("#nearDist").textContent=$("#trend").textContent="ไม่พบข้อมูล"}
- rows.slice(0,12).forEach(r=>{let nm=txt(get(r,"station.tele_station_name"))||txt(r.station_name)||"สถานีไม่ระบุชื่อ",[lab,cl,base]=state(r),wl=num(r.waterlevel_msl??r.waterlevel_m),d=document.createElement("div");d.className="card station";
- d.innerHTML=`<div class="head"><b>${nm}</b><span class="${cl}">${lab}</span></div><div class="wl ${cl}">${wl==null?"—":wl.toFixed(2)+" ม.รทก."}</div><div class="distance">📍 ${r._d.toFixed(1)} กม. จากตำแหน่งคุณ</div><div class="bar"><div class="fill ${cl}" style="width:${Math.min(100,base)}%"></div></div>`;box.appendChild(d)})
-}
-$("#locate").onclick=()=>navigator.geolocation?.getCurrentPosition(p=>{here={lat:p.coords.latitude,lon:p.coords.longitude};$("#place").textContent="Location ปัจจุบัน";$("#coords").textContent=`${here.lat.toFixed(5)}, ${here.lon.toFixed(5)} • ±${Math.round(p.coords.accuracy)} ม.`;load()},e=>$("#msg").textContent="Location error: "+e.message,{enableHighAccuracy:true,timeout:15000});
-$("#refresh").onclick=load;$("#radius").onchange=load;setInterval(load,5000);
-</script></body></html>
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#081923" />
+    <meta
+      name="description"
+      content="ติดตามระดับน้ำจริงจากสถานีรอบตัว ในพื้นที่แม่กลอง ราชบุรี และสมุทรสงคราม พร้อมคำอธิบายสัญญาณเฝ้าระวัง"
+    />
+    <title>Water Impact Monitor · ติดตามน้ำรอบตัว</title>
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/vendor/leaflet.css" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/vendor/leaflet.js" defer></script>
+    <script src="/assets/config.js" defer></script>
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a href="#dashboard" class="skip">ข้ามไปที่ข้อมูล</a>
+    <main>
+      <header class="masthead">
+        <a href="/" class="brand"
+          ><svg viewBox="0 0 32 32" aria-hidden="true">
+            <path
+              d="M2 12c5-6 9 6 14 0s9 6 14 0M2 20c5-6 9 6 14 0s9 6 14 0"
+            /></svg
+          ><span>Water Impact Monitor<small>ติดตามน้ำรอบตัว</small></span></a
+        >
+        <span class="region">แม่กลอง · ราชบุรี · สมุทรสงคราม</span>
+      </header>
+      <section class="hero" id="dashboard" aria-labelledby="hero-title">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">YOUR AREA / สถานการณ์รอบพื้นที่</p>
+            <h1 id="hero-title">
+              รู้ทันระดับน้ำ<br /><span>ใกล้ตำแหน่งของคุณ</span>
+            </h1>
+            <p class="muted">
+              ข้อมูลจากสถานีจริง พร้อมเหตุผลและข้อจำกัดของการประเมิน
+            </p>
+          </div>
+          <span class="badge gray" id="source-status">รอตำแหน่ง</span>
+        </div>
+        <div class="location-actions">
+          <button id="locate" class="primary" type="button">
+            ⌖ ใช้ตำแหน่งปัจจุบัน</button
+          ><button
+            id="manual-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="manual-location"
+          >
+            เลือกพื้นที่ / ใส่พิกัด
+          </button>
+        </div>
+        <p id="location-status" role="status">กำลังขออนุญาตใช้ GPS…</p>
+        <div id="manual-location" class="manual" hidden>
+          <p>
+            เลือกจุดอ้างอิงของพื้นที่ หรือใส่พิกัดที่ต้องการตรวจ
+            จุดอ้างอิงนี้ไม่ใช่ตำแหน่ง GPS ของคุณ
+          </p>
+          <div class="preset-list">
+            <button data-preset="damnoen" type="button">ดำเนินสะดวก</button
+            ><button data-preset="ratchaburi" type="button">เมืองราชบุรี</button
+            ><button data-preset="maeklong" type="button">
+              เมืองสมุทรสงคราม
+            </button>
+          </div>
+          <form id="location-form">
+            <label
+              >ละติจูด<input
+                id="manual-lat"
+                type="number"
+                inputmode="decimal"
+                step="any"
+                min="-90"
+                max="90"
+                placeholder="13.518"
+                required /></label
+            ><label
+              >ลองจิจูด<input
+                id="manual-lon"
+                type="number"
+                inputmode="decimal"
+                step="any"
+                min="-180"
+                max="180"
+                placeholder="99.954"
+                required /></label
+            ><button type="submit">ใช้พิกัดนี้</button>
+          </form>
+        </div>
+        <div class="assessment">
+          <div class="gauge" id="gauge" role="img" aria-label="ยังไม่มีคะแนน">
+            <div class="gauge-inside">
+              <strong id="score">—</strong><span>คะแนนสัญญาณ / 100</span>
+            </div>
+          </div>
+          <div class="assessment-copy">
+            <p class="eyebrow">ASSESSMENT / การคัดกรองเบื้องต้น</p>
+            <h2 id="verdict">รอตำแหน่งที่ต้องการตรวจ</h2>
+            <div class="confidence" id="confidence">
+              ความเชื่อมั่น: ยังประเมินไม่ได้
+            </div>
+            <ul id="reasons">
+              <li>ใช้ GPS หรือเลือกพื้นที่เพื่อค้นหาสถานีรอบตัว</li>
+            </ul>
+            <p class="fine">
+              คะแนนนี้ไม่ใช่เปอร์เซ็นต์โอกาสน้ำท่วม
+              และไม่ยืนยันว่าจุดนี้จะปลอดภัยหรือน้ำท่วม
+            </p>
+          </div>
+        </div>
+      </section>
+      <aside
+        class="emergency"
+        id="emergency"
+        hidden
+        aria-label="ช่องทางเตือนภัย"
+      >
+        <strong>พบสัญญาณน้ำสูงที่สถานีรอบพื้นที่</strong>
+        <p>
+          ตรวจคำเตือนทางการและติดตามเจ้าหน้าที่ในพื้นที่ หากพบเหตุสาธารณภัย
+          ติดต่อ ปภ. 1784
+        </p>
+        <div>
+          <a
+            href="https://disaster.go.th/contents/disaster_alert_report"
+            target="_blank"
+            rel="noopener noreferrer"
+            >คำเตือนจาก ปภ. ↗</a
+          ><a href="tel:1784">โทร 1784</a>
+        </div>
+      </aside>
+      <section class="data-section" aria-labelledby="data-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">OBSERVATIONS / ข้อมูลตรวจวัด</p>
+            <h2 id="data-title">น้ำรอบพื้นที่ที่เลือก</h2>
+          </div>
+          <div class="controls">
+            <label for="radius">รัศมี</label
+            ><select id="radius">
+              <option value="20">20 กม.</option>
+              <option value="50" selected>50 กม.</option>
+              <option value="100">100 กม.</option></select
+            ><button id="refresh" type="button">↻ ตรวจอีกครั้ง</button>
+          </div>
+        </div>
+        <div class="metrics">
+          <article class="metric">
+            <span class="metric-icon">⌖</span>
+            <p class="label">ตำแหน่งที่ตรวจ</p>
+            <h3 id="place">ยังไม่ได้เลือก</h3>
+            <p id="coords" class="muted">ไม่มีการใช้ตำแหน่งจาก IP</p>
+          </article>
+          <article class="metric">
+            <span class="metric-icon">◉</span>
+            <p class="label">สถานีใกล้ที่สุด</p>
+            <h3 id="nearest">—</h3>
+            <p id="near-distance" class="muted">รอข้อมูลสถานี</p>
+          </article>
+          <article class="metric">
+            <span class="metric-icon">≋</span>
+            <p class="label">ระดับน้ำสถานีใกล้สุด</p>
+            <h3 id="near-level">—</h3>
+            <p id="sensor-time" class="muted">เวลาตรวจวัด: —</p>
+          </article>
+          <article class="metric">
+            <span class="metric-icon">↗</span>
+            <p class="label">อัตราการเปลี่ยนระดับน้ำ</p>
+            <h3 id="rise-rate">ยังไม่มีค่าต่อชั่วโมง</h3>
+            <p id="trend" class="muted">ต้องมีเวลาตรวจวัดสองครั้ง</p>
+          </article>
+          <article class="metric context">
+            <span class="metric-icon">≈</span>
+            <p class="label">น้ำทะเลหนุน</p>
+            <h3>ยังไม่มีข้อมูลที่เชื่อมต่อ</h3>
+            <a
+              href="https://hydro.navy.mi.th/waterlaveltable"
+              target="_blank"
+              rel="noopener noreferrer"
+              >ตรวจมาตราน้ำ กรมอุทกศาสตร์ ↗</a
+            >
+          </article>
+          <article class="metric context">
+            <span class="metric-icon">☂</span>
+            <p class="label">ฝนรอบพื้นที่</p>
+            <h3>ยังไม่มีข้อมูลที่เชื่อมต่อ</h3>
+            <a
+              href="https://www.thaiwater.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+              >ตรวจข้อมูลฝนจาก ThaiWater ↗</a
+            >
+          </article>
+        </div>
+      </section>
+      <section class="map-section" aria-labelledby="map-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">NEARBY STATIONS / แผนที่สถานี</p>
+            <h2 id="map-title">เห็นตำแหน่งและทางน้ำ</h2>
+          </div>
+          <span id="station-count" class="muted">รอตำแหน่ง</span>
+        </div>
+        <p class="fine">
+          แตะสถานีเพื่อดูรายละเอียด • วงกลมแสดงรัศมีค้นหา ไม่ใช่พื้นที่น้ำท่วม
+        </p>
+        <div
+          id="map"
+          role="region"
+          aria-label="แผนที่ตำแหน่งและสถานีตรวจน้ำ"
+        ></div>
+        <p id="map-status" class="fine" role="status"></p>
+        <div class="legend">
+          <span class="green">● น้ำปกติ</span
+          ><span class="yellow">● น้ำน้อย</span
+          ><span class="orange">● น้ำมาก</span
+          ><span class="red">● ล้นตลิ่ง</span
+          ><span class="gray">● ข้อมูลเก่าหรือไม่ครบ</span
+          ><span class="blue">● ตำแหน่งที่เลือก</span>
+        </div>
+      </section>
+      <section aria-labelledby="stations-title">
+        <div class="section-head">
+          <h2 id="stations-title">รายละเอียดสถานี</h2>
+          <span class="muted">เรียงจากใกล้ไปไกล</span>
+        </div>
+        <p id="data-status" role="status">
+          เลือกตำแหน่งเพื่อดูสถานีในรัศมีที่ต้องการ
+        </p>
+        <div id="stations" class="stations"></div>
+        <button id="show-more" type="button" hidden>แสดงสถานีเพิ่มเติม</button>
+      </section>
+      <section class="method" aria-labelledby="method-title">
+        <p class="eyebrow">CONFIDENCE / ขอบเขตข้อมูล</p>
+        <h2 id="method-title">ทำไมยังเป็นการคัดกรองเบื้องต้น?</h2>
+        <p>
+          ใช้สถานะระดับน้ำ ระยะทางตรง ระยะห่างจากตลิ่งที่สถานี
+          และอัตราการเปลี่ยนระดับน้ำเมื่อมีเวลาตรวจวัดครบ
+          ความเชื่อมั่นต่อผลกระทบที่ตำแหน่งคุณจึงยังต่ำ
+        </p>
+        <ul id="limitations">
+          <li>
+            ยังไม่มีระดับความสูงของตำแหน่งคุณ แนวคันกั้นน้ำ
+            และเส้นทางน้ำที่เชื่อมกับตำแหน่งนี้
+          </li>
+          <li>ยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต</li>
+          <li>
+            สถานีที่อยู่ใกล้อาจอยู่คนละลำน้ำ
+            ไม่ได้ยืนยันว่าสถานีอยู่ต้นน้ำหรือปลายน้ำของคุณ
+          </li>
+        </ul>
+        <p class="fine">
+          หน้าเว็บตรวจข้อมูลทุกประมาณ 5 วินาที บริการเก็บข้อมูลต้นทางไว้ 60
+          วินาที ค่าที่เซนเซอร์วัดเปลี่ยนตามรอบจริงของแต่ละสถานี
+        </p>
+        <div class="timestamps">
+          <span id="checked-time">หน้าเว็บตรวจล่าสุด: —</span
+          ><span id="fetched-time">บริการรับข้อมูลต้นทาง: —</span>
+        </div>
+      </section>
+      <footer>
+        <p>
+          แหล่งข้อมูล:
+          <a
+            href="https://www.thaiwater.net/"
+            target="_blank"
+            rel="noopener noreferrer"
+            >ThaiWater / คลังข้อมูลน้ำแห่งชาติ</a
+          >
+          · แสดงหน่วยงานเจ้าของข้อมูลในแต่ละสถานี
+        </p>
+        <p>
+          ส่งพิกัดไปยังบริการของแอปเพื่อค้นหาสถานี ไม่ส่งพิกัดของคุณไปยัง API
+          ตรวจน้ำต้นทาง และไม่บันทึกพิกัดในแอป
+        </p>
+        <a
+          href="https://www.openstreetmap.org/fixthemap"
+          target="_blank"
+          rel="noopener noreferrer"
+          >แจ้งปัญหาแผนที่ ↗</a
+        >
+        ·
+        <a
+          href="https://github.com/nuttapolkung/water-impact-monitor-app/issues"
+          target="_blank"
+          rel="noopener noreferrer"
+          >ติดต่อ / แจ้งปัญหาแอป ↗</a
+        >
+      </footer>
+      <noscript>กรุณาเปิด JavaScript เพื่อใช้ GPS และตรวจข้อมูลสถานี</noscript>
+    </main>
+  </body>
+</html>
