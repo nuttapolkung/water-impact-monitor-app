@@ -375,7 +375,7 @@
       !fresh || result?.status === "stale"
         ? "ข้อมูลล่าสุดเก่าหรือไม่ครบ ยังเทียบการเปลี่ยนแปลงไม่ได้"
         : result?.status === "ready"
-          ? `เทียบจากเวลาวัด ${formatTime(result.anchorAt)}${result.comparisons.some((v) => v.status === "missing") ? " · — ไม่มีค่าเทียบ" : ""}${result.comparisons.some((v) => v.approximate) ? " · ≈ ใช้เวลาใกล้เคียง" : ""}`
+          ? `เทียบจากเวลาวัดของจุดนี้ ${formatTime(result.anchorAt)}${result.comparisons.some((v) => v.status === "missing") ? " · — ไม่มีค่าเทียบ" : ""}${result.comparisons.some((v) => v.approximate) ? " · ≈ ใช้เวลาใกล้เคียง" : ""}`
           : response?.status === "rate_limited"
             ? "ต้นทางจำกัดการเรียกข้อมูลย้อนหลัง จะลองใหม่เมื่อครบเวลารอ"
             : response || result?.status === "incompatible"
@@ -389,7 +389,26 @@
     row.button.disabled =
       historyPending.has(row.station.id) || response?.expiresAt > Date.now();
     row.facts.replaceChildren();
+    if (result?.anchorFromHistory) {
+      row.time.textContent = stationTimeText({
+        ...row.station,
+        sensorUpdatedAt: result.anchorAt,
+      });
+      row.time.setAttribute("datetime", result.anchorAt);
+      row.time.setAttribute(
+        "title",
+        `เวลาวัดของจุดนี้ ${formatTime(result.anchorAt)} · เวลารายงานร่วมของสถานี ${formatTime(result.reportedAt)}`,
+      );
+    }
     if (result?.status === "ready") {
+      if (result.anchorFromHistory)
+        row.facts.append(
+          element(
+            "p",
+            "station-note",
+            `เวลาวัดจุดนี้ ${formatTime(result.anchorAt)} ต่างจากเวลารายงานร่วมของสถานี ${formatTime(result.reportedAt)} จึงเทียบจากเวลาวัดจริงในกราฟของจุดนี้`,
+          ),
+        );
       row.facts.append(
         element(
           "p",
@@ -428,7 +447,7 @@
     historyPending.add(id);
     paintHistory(row);
     try {
-      historyImport ||= import("./history.js");
+      historyImport ||= import("./history.js?v=20261003-channel");
       historyModule = await historyImport;
       const response = await historyModule.historySource.get(row.station);
       if (historyResponses.size >= 256 && !historyResponses.has(id))
@@ -656,6 +675,7 @@
         caption,
         facts: historyFacts,
         button: historyButton,
+        time,
       };
       historyRows.set(s.id, historyRow);
       paintHistory(historyRow);

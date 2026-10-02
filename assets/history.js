@@ -125,8 +125,8 @@ export function compareHistory(
   history,
   { now = Date.now(), sourceStatus = "fresh" } = {},
 ) {
-  const ref = historyReference(station),
-    anchor = Date.parse(station.sensorUpdatedAt);
+  const ref = historyReference(station);
+  let anchor = Date.parse(station.sensorUpdatedAt);
   const result = {
     anchorAt: station.sensorUpdatedAt,
     comparisons: HISTORY_HOURS.map((hours) => ({ hours, status: "missing" })),
@@ -157,11 +157,25 @@ export function compareHistory(
           channel.parameter !== station.gaugeParameter)))
   )
     return { ...result, status: "incompatible" };
-  // Dashboard snapshots round to two decimals. Use the unrounded graph value
-  // at the exact same instant, otherwise rounding alone can invent a direction.
-  const current = channel.points.find((p) => Date.parse(p.at) === anchor);
+  // RID's current-value list has one timestamp for all gauge channels, while
+  // individual graph channels can update independently. Use the latest actual
+  // reading of this channel at/before the report, never stamp it with another
+  // channel's time. ThaiWater's single-channel current timestamp must match.
+  const current =
+    ref.provider === "RID"
+      ? channel.points
+          .filter((p) => Date.parse(p.at) <= anchor)
+          .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]
+      : channel.points.find((p) => Date.parse(p.at) === anchor);
   if (!current || Math.abs(current.level - level) > 0.0051)
     return { ...result, status: "incompatible" };
+  result.anchorFromHistory = Date.parse(current.at) !== anchor;
+  result.reportedAt = station.sensorUpdatedAt;
+  result.anchorAt = current.at;
+  anchor = Date.parse(current.at);
+  if (now - anchor > SENSOR_MAX_AGE_MS) return { ...result, status: "stale" };
+  // Use full graph precision: rounding current levels to two decimals can
+  // otherwise invent a small increase or decrease.
   result.status = "ready";
   result.datum = datum;
   result.comparisons = HISTORY_HOURS.map((hours) => {

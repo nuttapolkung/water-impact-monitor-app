@@ -85,7 +85,7 @@ test("history compares 1/3/6/24 hours using unrounded same-instant readings and 
   );
 });
 
-test("historical deltas require matching station/provider/parameter/datum and an exact current reading", () => {
+test("historical deltas require matching station/provider/parameter/datum and a compatible current reading", () => {
   const history = normalizeRidHistory(graph(), "383");
   for (const changed of [
     { ...history, resourceId: "999" },
@@ -96,15 +96,6 @@ test("historical deltas require matching station/provider/parameter/datum and an
       channels: [{ ...history.channels[0], parameter: "WL_DOWN" }],
     },
     { ...history, channels: [{ ...history.channels[0], datum: "local" }] },
-    {
-      ...history,
-      channels: [
-        {
-          ...history.channels[0],
-          points: history.channels[0].points.filter((p) => p.at !== at(0)),
-        },
-      ],
-    },
   ])
     assert.equal(compare(station, changed).status, "incompatible");
   assert.equal(
@@ -120,6 +111,42 @@ test("historical deltas require matching station/provider/parameter/datum and an
       normalizeRidHistory(local, "383"),
     ).datum,
     "local",
+  );
+});
+
+test("RID shared report timestamps never replace an independently measured channel's actual time", () => {
+  const history = normalizeRidHistory(graph(), "383");
+  const delayed = { ...station, sensorUpdatedAt: at(-0.5) };
+  const result = compare(delayed, history, { now: anchor + 3600000 });
+  assert.equal(result.status, "ready");
+  assert.equal(result.anchorAt, at(0));
+  assert.equal(result.anchorFromHistory, true);
+  assert.equal(result.reportedAt, at(-0.5));
+  assert.equal(result.comparisons[0].baselineAt, at(1));
+  assert.equal(
+    compare(delayed, history, { now: anchor + 3 * 3600000 + 1 }).status,
+    "stale",
+  );
+  // Never search farther back for a value that happens to match a newer report.
+  history.channels[0].points.push({ at: at(-0.25), level: 3 });
+  assert.equal(
+    compare(delayed, history, { now: anchor + 3600000 }).status,
+    "incompatible",
+  );
+  const thai = normalizeThaiWaterHistory(
+    {
+      result: "OK",
+      data: { graph_data: [{ datetime: "2026-10-03 02:00", value: 0.528 }] },
+    },
+    "754",
+  );
+  assert.equal(
+    compare(
+      { ...delayed, source: "ThaiWater", id: "754", waterLevelMsl: 0.53 },
+      thai,
+      { now: anchor + 3600000 },
+    ).status,
+    "incompatible",
   );
 });
 
