@@ -145,7 +145,7 @@
       qualityText(s),
       levelText(s),
       `ห่าง ${s.distanceKm.toFixed(1)} กม.`,
-      `ตรวจวัด ${formatTime(s.sensorUpdatedAt)}`,
+      `${s.source === "RID" ? "สถานีรายงาน" : "ตรวจวัด"} ${formatTime(s.sensorUpdatedAt)}`,
       s.river,
       s.waterRoute?.summary,
       `${s.source} · ${s.agency || "ไม่ระบุหน่วยงาน"}`,
@@ -323,10 +323,14 @@
       return `วัดล่าสุด ${Math.floor(minutes / 60)} ชม. ${minutes % 60} นาทีที่แล้ว`;
     return `วัดเมื่อ ${Math.floor(minutes / 1440)} วันที่แล้ว`;
   }
-  const stationTimeText = (s) =>
+  const stationTimeText = (s, measured = false) =>
     s.dataQuality === "missing"
       ? "ยังไม่มีค่าตรวจวัดล่าสุด"
-      : measuredAgo(s.sensorUpdatedAt);
+      : s.source === "RID" && !measured
+        ? measuredAgo(s.sensorUpdatedAt)
+            .replace(/^วัดล่าสุด/, "สถานีรายงานล่าสุด")
+            .replace(/^วัดเมื่อ/, "สถานีรายงานเมื่อ")
+        : measuredAgo(s.sensorUpdatedAt);
   let stationTimes = [],
     stationDetails = [];
   const historyResponses = new Map(),
@@ -389,11 +393,14 @@
     row.button.disabled =
       historyPending.has(row.station.id) || response?.expiresAt > Date.now();
     row.facts.replaceChildren();
-    if (result?.anchorFromHistory) {
-      row.time.textContent = stationTimeText({
-        ...row.station,
-        sensorUpdatedAt: result.anchorAt,
-      });
+    if (result?.status === "ready" || result?.anchorFromHistory) {
+      row.time.textContent = stationTimeText(
+        {
+          ...row.station,
+          sensorUpdatedAt: result.anchorAt,
+        },
+        true,
+      );
       row.time.setAttribute("datetime", result.anchorAt);
       row.time.setAttribute(
         "title",
@@ -704,7 +711,10 @@
             ? `${s.criticalLevel.toFixed(2)} เมตร`
             : "ไม่มีข้อมูล",
         ],
-        ["ตรวจวัดเมื่อ", formatTime(s.sensorUpdatedAt)],
+        [
+          s.source === "RID" ? "เวลารายงานของสถานี" : "ตรวจวัดเมื่อ",
+          formatTime(s.sensorUpdatedAt),
+        ],
         ["ทางน้ำ / ลุ่มน้ำ", s.river || s.basin || "ไม่ระบุ"],
         ["แนวโน้ม", trendText(s)],
         [
@@ -797,7 +807,7 @@
         : "ลองขยายรัศมีค้นหา";
     $("near-level").textContent = s ? levelText(s) : "—";
     $("sensor-time").textContent = s
-      ? `ตรวจวัด: ${formatTime(s.sensorUpdatedAt)}`
+      ? `${s.source === "RID" ? "สถานีรายงาน" : "ตรวจวัด"}: ${formatTime(s.sensorUpdatedAt)}`
       : "เวลาตรวจวัด: —";
     $("rise-rate").textContent =
       s?.riseRateCmPerHour != null

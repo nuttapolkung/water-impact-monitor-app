@@ -347,7 +347,7 @@ test("station details stay open while polling updates age and measurements; tech
   byClass(original, "station-route-details").open = true;
   assert.equal(
     byClass(original, "station-time").textContent,
-    "วัดล่าสุด 10 นาทีที่แล้ว",
+    "สถานีรายงานล่าสุด 10 นาทีที่แล้ว",
   );
   assert.doesNotMatch(h.get("data-status").textContent, /เส้นทาง|เบราว์เซอร์/);
   assert.match(h.get("source-detail").textContent, /ไม่ส่งพิกัด/);
@@ -358,7 +358,7 @@ test("station details stay open while polling updates age and measurements; tech
   assert.equal(details.open, true);
   assert.equal(
     byClass(original, "station-time").textContent,
-    "วัดล่าสุด 12 นาทีที่แล้ว",
+    "สถานีรายงานล่าสุด 12 นาทีที่แล้ว",
   );
   h.respond(ridData({ waterLevelMsl: 2.64, situation: "high" }));
   h.get("refresh").onclick();
