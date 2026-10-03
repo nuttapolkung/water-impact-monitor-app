@@ -777,11 +777,13 @@
   function render(data) {
     lastData = data;
     assessment(data.assessment);
-    const sourceName = data.source.name?.startsWith("RID")
-      ? "กรมชลประทาน"
-      : data.source.name?.startsWith("ThaiWater")
-        ? "ThaiWater"
-        : data.source.name || "ข้อมูลสถานี";
+    const sourceName = data.source.name?.includes(" + ")
+      ? "ThaiWater + กรมชลประทาน"
+      : data.source.name?.startsWith("RID")
+        ? "กรมชลประทาน"
+        : data.source.name?.startsWith("ThaiWater")
+          ? "ThaiWater"
+          : data.source.name || "ข้อมูลสถานี";
     $("source-status").textContent =
       data.source.status === "fresh"
         ? `● ${sourceName}${data.source.fallback ? " · ข้อมูลสำรอง" : ""}`
@@ -802,9 +804,21 @@
         : data.stations.length
           ? `พบ ${data.stations.length} จุดตรวจวัดใน ${data.radiusKm} กม. · ${data.stations.filter((s) => s.dataQuality === "fresh").length} จุดมีข้อมูลล่าสุด${data.stations.some((s) => s.dataQuality !== "fresh") ? " · ป้ายสีเทาคือข้อมูลเก่าหรือไม่ครบ" : ""}`
           : "ไม่พบสถานีในรัศมีนี้ ลองขยายรัศมีหรือเลือกพื้นที่อื่น";
+    if (data.source.partial)
+      $("data-status").textContent +=
+        " · บางแหล่งยังไม่พร้อม รายการสถานีอาจไม่ครบ";
     $("source-details").hidden = false;
     $("source-detail").textContent =
       `${data.source.name || sourceName} · ${data.source.message || "ข้อมูลจากหน่วยงานเจ้าของสถานี"}${data.source.fetchedAt ? " · แอปรับข้อมูลเมื่อ " + formatTime(data.source.fetchedAt) : ""}`;
+    if (data.source.sources)
+      $("source-detail").textContent +=
+        " · " +
+        data.source.sources
+          .map(
+            (s) =>
+              `${s.name}: ${{ fresh: "เชื่อมต่อได้", stale: "ข้อมูลที่เก็บไว้", unavailable: "ยังไม่พร้อม" }[s.status] || s.status}${s.transport === "browser" ? " ผ่านเบราว์เซอร์" : ""}`,
+          )
+          .join(" · ");
     const s = data.stations[0];
     $("nearest").textContent =
       s?.name || (unavailable ? "ยังไม่มีข้อมูล" : "ไม่พบสถานี");
@@ -908,7 +922,9 @@
         throw new Error(data.message || "บริการไม่พร้อมใช้งาน");
       if (response.status === 503 && data.source.status === "unavailable") {
         try {
-          const { browserSource } = await import("./browser-source.js");
+          const { browserSource } = await import(
+            "./browser-source.js?v=20261003-sources"
+          );
           data = await browserSource.get({
             location: { lat: here.lat, lon: here.lon },
             radiusKm: +$("radius").value,
@@ -924,6 +940,33 @@
             error?.cause?.message || error?.message,
           );
           data.source.message += " • เส้นทางสำรองผ่านเบราว์เซอร์ยังไม่พร้อม";
+        }
+      }
+      const ridStatus = data.source.sources?.find(
+        (s) => s.name === "RID",
+      )?.status;
+      if (
+        (ridStatus && ridStatus !== "fresh") ||
+        (!data.source.sources && data.source.name?.startsWith("ThaiWater"))
+      ) {
+        try {
+          const { browserRidSource, mergeWaterResponses } = await import(
+            "./browser-source.js?v=20261003-sources"
+          );
+          const rid = await browserRidSource.get({
+            location: { lat: here.lat, lon: here.lon },
+            radiusKm: +$("radius").value,
+            version: data.version,
+            signal: controller.signal,
+          });
+          if (requestId !== serial) return;
+          data = mergeWaterResponses(data, rid);
+        } catch (error) {
+          if (requestId !== serial) return;
+          if (controller.signal.aborted) throw error;
+          data.source.partial = true;
+          data.source.message +=
+            " · ยังเติมสถานี RID ไม่สำเร็จ รายการสถานีอาจไม่ครบ";
         }
       }
       render(data);

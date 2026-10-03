@@ -186,3 +186,46 @@ test("browser RID reads one public INIT then closes and abort/timeout close sock
   );
   assert.equal(socket.closed, true);
 });
+
+test("RID supplement loads independently of healthy ThaiWater and shares its national cache", async () => {
+  let time = Date.parse("2026-10-03T00:00:00Z"),
+    calls = 0;
+  const source = createBrowserSource({
+    includeThaiWater: false,
+    now: () => time,
+    fetcher: () => {
+      throw new Error("ThaiWater must not replace the RID supplement");
+    },
+    ridFetcher: async () => {
+      calls++;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return {
+        type: "INIT",
+        data: {
+          383: {
+            name: "ปตร.บางนกแขวก",
+            location: { x: 99.9273112, y: 13.500218 },
+            measure: { wl: true },
+            cross_section: [{ unit: 0, warning: 2.5, critical: 2.8 }],
+            values: { water_level: { value: 2.1, unixtime: time / 1000 } },
+          },
+        },
+      };
+    },
+  });
+  const results = await Promise.all(
+    Array.from({ length: 5 }, () => source.get(query)),
+  );
+  assert.equal(calls, 1);
+  assert.ok(
+    results.every(
+      (r) => r.source.name.startsWith("RID") && r.stations.length === 1,
+    ),
+  );
+  assert.ok(Math.abs(results[0].stations[0].distanceKm - 3.5) < 0.02);
+  await source.get({ ...query, location: { lat: 0, lon: 0 } });
+  assert.equal(calls, 1);
+  time += 60001;
+  await source.get(query);
+  assert.equal(calls, 2);
+});

@@ -146,12 +146,16 @@ export function createApp({
             fetchedAt: data.fetchedAt,
             lastFailureAt: data.lastFailureAt,
             nextRefreshAt: data.nextRefreshAt,
+            sources: data.sources,
+            partial: Boolean(data.partial),
             cacheSeconds: 60,
             message:
               data.status === "fresh"
-                ? data.fallback
-                  ? "ใช้ข้อมูลสำรองจาก RID เนื่องจากต้นทางหลักไม่พร้อม"
-                  : "เชื่อมต่อข้อมูลต้นทางได้"
+                ? data.sources?.length > 1
+                  ? "รวมข้อมูลสถานี ThaiWater และ RID · ตรวจสถานะแต่ละแหล่งแยกกัน"
+                  : data.fallback
+                    ? "ใช้ข้อมูลสำรองจาก RID เนื่องจากต้นทางหลักไม่พร้อม"
+                    : "เชื่อมต่อข้อมูลต้นทางได้"
                 : "ข้อมูลต้นทางชั่วคราวไม่พร้อมใช้งาน",
           },
           assessment: assess(stations, data.status),

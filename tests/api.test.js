@@ -92,6 +92,51 @@ test("unavailable source returns a structured 503 with no invented stations or s
   );
 });
 
+test("partial API coverage exposes a missing RID source so the browser can supplement it", async () => {
+  await withServer(
+    {
+      cache: {
+        get: async () => ({
+          stations: [
+            { ...station, source: "ThaiWater", sourceStatus: "fresh" },
+          ],
+          status: "fresh",
+          sourceName: "ThaiWater",
+          partial: true,
+          sources: [
+            {
+              name: "ThaiWater",
+              status: "fresh",
+              fetchedAt: "2026-10-02T12:30:00Z",
+              transport: "server",
+            },
+            {
+              name: "RID",
+              status: "unavailable",
+              fetchedAt: null,
+              transport: "server",
+            },
+          ],
+        }),
+      },
+    },
+    async (base) => {
+      const response = await fetch(
+        base + "/api/water?lat=13.518&lon=99.954&radius=20",
+      );
+      assert.equal(response.status, 200);
+      const result = await response.json();
+      assert.equal(result.source.partial, true);
+      assert.equal(
+        result.source.sources.find((s) => s.name === "RID").status,
+        "unavailable",
+      );
+      assert.equal(result.stations.length, 1);
+      assert.equal(result.stations[0].dataQuality, "fresh");
+    },
+  );
+});
+
 test("API rate limiting does not block health checks", async () => {
   await withServer({ rateLimit: 1 }, async (base) => {
     assert.equal((await fetch(base + "/api/water?lat=13&lon=100")).status, 200);

@@ -104,7 +104,7 @@ test("schema failures never poison the last-known-good cache", async () => {
   assert.deepEqual(stale.stations, original.stations);
 });
 
-test("429 uses independent fallback, honors Retry-After and recovers the primary without hammering it", async () => {
+test("429 honors Retry-After and primary recovery retains supplementary station coverage", async () => {
   let timestamp = Date.parse("2026-10-02T13:00:00Z"),
     calls = 0,
     fallbackCalls = 0,
@@ -145,8 +145,98 @@ test("429 uses independent fallback, honors Retry-After and recovers the primary
   recover = true;
   timestamp += 1800000;
   const primary = await cache.get();
-  assert.equal(primary.sourceName, "ThaiWater");
+  assert.equal(primary.sourceName, "ThaiWater + backup");
+  assert.deepEqual(
+    primary.stations.map((s) => s.id),
+    ["1", "backup:1"],
+  );
+  assert.equal(fallbackCalls, 3);
   assert.equal(primary.fallback, false);
+  assert.equal(calls, 2);
+});
+
+test("healthy primary still fetches and combines the independent supplementary source once for concurrent callers", async () => {
+  let primaryCalls = 0,
+    supplementaryCalls = 0;
+  const cache = createWaterCache({
+    file: null,
+    logger,
+    sources: [
+      THAIWATER_SOURCE,
+      {
+        name: "RID",
+        url: "test:rid",
+        normalize: (p) => p,
+        load: async () => {
+          supplementaryCalls++;
+          return [{ id: "rid:383:0", name: "ปตร.บางนกแขวก" }];
+        },
+      },
+    ],
+    fetcher: async () => {
+      primaryCalls++;
+      return response();
+    },
+  });
+  const results = await Promise.all(
+    Array.from({ length: 8 }, () => cache.get()),
+  );
+  assert.equal(primaryCalls, 1);
+  assert.equal(supplementaryCalls, 1);
+  assert.ok(
+    results.every(
+      (result) =>
+        result.stations.length === 2 &&
+        result.sourceName === "ThaiWater + RID" &&
+        !result.partial,
+    ),
+  );
+  await cache.get();
+  assert.equal(supplementaryCalls, 1);
+});
+
+test("a failed supplement stays stale when the primary refreshes, retains its timestamp and respects cooldown", async () => {
+  let timestamp = Date.parse("2026-10-02T13:00:00Z"),
+    fail = false,
+    calls = 0;
+  const cache = createWaterCache({
+    file: null,
+    logger,
+    now: () => timestamp,
+    ttlMs: 1000,
+    retryAfterMs: 10000,
+    sources: [
+      THAIWATER_SOURCE,
+      {
+        name: "RID",
+        url: "test:rid",
+        normalize: (p) => p,
+        attempts: 1,
+        load: async () => {
+          calls++;
+          if (fail) throw new Error("failed");
+          return [{ id: "rid:383:0" }];
+        },
+      },
+    ],
+    fetcher: async () => response(),
+  });
+  const first = await cache.get();
+  fail = true;
+  timestamp += 1001;
+  const second = await cache.get();
+  assert.equal(second.status, "fresh");
+  assert.equal(second.partial, true);
+  assert.equal(
+    second.stations.find((s) => s.id.startsWith("rid:")).sourceStatus,
+    "stale",
+  );
+  assert.equal(
+    second.sources.find((s) => s.name === "RID").fetchedAt,
+    first.sources.find((s) => s.name === "RID").fetchedAt,
+  );
+  timestamp += 1001;
+  await cache.get();
   assert.equal(calls, 2);
 });
 

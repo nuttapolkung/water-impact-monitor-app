@@ -2,6 +2,7 @@ import { readFile, mkdir, writeFile, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { SOURCE_URL, normalizeWater } from "./water.js";
 import { RID_URL, fetchRidSnapshot, normalizeRid } from "./rid.js";
+import { combineSnapshots } from "../assets/source-set.js";
 
 export const THAIWATER_SOURCE = {
   name: "ThaiWater",
@@ -28,7 +29,30 @@ export function retryDelay(value, now, fallback) {
     : fallback;
 }
 
-export function createWaterCache({
+export function createWaterCache(options = {}) {
+  const sources = options.sources || [THAIWATER_SOURCE, RID_SOURCE];
+  if (!sources.length) throw new Error("SOURCE_REQUIRED");
+  if (sources.length === 1) return createSourceCache({ ...options, sources });
+  const caches = sources.map((source, index) =>
+    createSourceCache({
+      ...options,
+      sources: [source],
+      file:
+        options.file === null
+          ? null
+          : `${options.file || ".cache/water.json"}.${index}`,
+    }),
+  );
+  return {
+    get: async () =>
+      combineSnapshots(
+        await Promise.all(caches.map((cache) => cache.get())),
+        sources[0].name,
+      ),
+  };
+}
+
+function createSourceCache({
   fetcher = fetch,
   now = Date.now,
   ttlMs = 60000,

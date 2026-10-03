@@ -186,7 +186,7 @@ export function nearbyStations(stations, location, radius, now = Date.now()) {
             ? "missing"
             : !Number.isFinite(age) || age < -300000
               ? "unknown"
-              : age > SENSOR_MAX_AGE_MS
+              : s.sourceStatus === "stale" || age > SENSOR_MAX_AGE_MS
                 ? "stale"
                 : "fresh",
       };

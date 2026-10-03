@@ -1,6 +1,12 @@
-import { SOURCE_URL, normalizeWater, nearbyStations, assess } from "./water.js";
+import {
+  SOURCE_URL,
+  normalizeWater,
+  nearbyStations,
+  assess,
+} from "./water.js?v=20261003-sources";
 import { normalizeRid } from "./rid-water.js";
 import { RID_URL, fetchRidBrowserSnapshot } from "./rid-source.js";
+export { mergeWaterResponses } from "./source-set.js";
 
 // Each page shares one national snapshot per minute. Coordinates are used only
 // for local filtering; public sources receive no GPS parameters or cookies.
@@ -8,6 +14,7 @@ export function createBrowserSource({
   fetcher = fetch,
   now = Date.now,
   ridFetcher = null,
+  includeThaiWater = true,
 } = {}) {
   let snapshot = null,
     pending = null,
@@ -63,12 +70,16 @@ export function createBrowserSource({
     }
   }
   const sources = [
-    {
-      name: "ThaiWater",
-      url: SOURCE_URL,
-      load: thaiWater,
-      normalize: normalizeWater,
-    },
+    ...(includeThaiWater
+      ? [
+          {
+            name: "ThaiWater",
+            url: SOURCE_URL,
+            load: thaiWater,
+            normalize: normalizeWater,
+          },
+        ]
+      : []),
     ...(ridFetcher
       ? [
           {
@@ -141,7 +152,7 @@ export function createBrowserSource({
         throw new Error("SOURCE_UNAVAILABLE", { cause: lastError });
       const status = failed || age >= 60000 ? "stale" : "fresh";
       const stations = nearbyStations(
-        snapshot.stations,
+        snapshot.stations.map((s) => ({ ...s, sourceStatus: status })),
         location,
         radiusKm,
         now(),
@@ -172,5 +183,11 @@ export function createBrowserSource({
   };
 }
 export const browserSource = createBrowserSource({
+  ridFetcher: fetchRidBrowserSnapshot,
+});
+// Supplement RID even while the main service can reach ThaiWater. Its national
+// snapshot is shared across polls and locations with the same 60-second cache.
+export const browserRidSource = createBrowserSource({
+  includeThaiWater: false,
   ridFetcher: fetchRidBrowserSnapshot,
 });
