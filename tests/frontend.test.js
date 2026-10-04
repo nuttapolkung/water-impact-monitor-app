@@ -7,6 +7,10 @@ const script = readFileSync(
   new URL("../assets/app.js", import.meta.url),
   "utf8",
 );
+const areaScript = readFileSync(
+  new URL("../assets/areas.js", import.meta.url),
+  "utf8",
+);
 const station = {
   id: "754",
   name: "<img src=x onerror=alert(1)>",
@@ -157,6 +161,7 @@ function harness({
     AbortController,
     console,
   };
+  vm.runInNewContext(areaScript, context);
   vm.runInNewContext(script, context);
   return {
     get,
@@ -217,9 +222,9 @@ test("GPS denial, unavailable position, timeout, and unknown errors automaticall
     assert.match(h.get("location-status").textContent, expected);
     assert.match(
       h.get("location-status").textContent,
-      /ดำเนินสะดวกอัตโนมัติ ไม่ใช่ตำแหน่ง GPS/,
+      /ดำเนินสะดวกอัตโนมัติ.*ไม่ใช่ GPS/,
     );
-    assert.equal(h.get("place").textContent, "จุดอ้างอิงดำเนินสะดวก");
+    assert.equal(h.get("place").textContent, "ดำเนินสะดวก");
     assert.match(h.get("coords").textContent, /จุดอ้างอิงเริ่มต้น/);
     assert.equal(h.get("manual-location").hidden, true);
     assert.deepEqual(h.requests, [
@@ -238,7 +243,7 @@ test("unsupported, insecure, and synchronously blocked geolocation use the autom
   ]) {
     const h = harness(options);
     await settle();
-    assert.equal(h.get("place").textContent, "จุดอ้างอิงดำเนินสะดวก");
+    assert.equal(h.get("place").textContent, "ดำเนินสะดวก");
     assert.match(h.get("location-status").textContent, /อัตโนมัติ/);
     assert.equal(h.requests.length, 1);
   }
@@ -257,7 +262,7 @@ test("a GPS retry can replace the default with GPS, while a failed retry preserv
   await settle();
   h.get("locate").onclick();
   h.error(2);
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงเมืองราชบุรี");
+  assert.equal(h.get("place").textContent, "เมืองราชบุรี");
   assert.match(h.get("location-status").textContent, /พื้นที่เดิม/);
   assert.equal(h.requests.length, 3);
 });
@@ -267,8 +272,8 @@ test("a late GPS error never replaces the user's manual choice with the default"
   h.presets[2].onclick();
   h.error(1);
   await settle();
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงเมืองสมุทรสงคราม");
-  assert.match(h.get("location-status").textContent, /ไม่ใช่ตำแหน่ง GPS/);
+  assert.equal(h.get("place").textContent, "เมืองสมุทรสงคราม");
+  assert.match(h.get("location-status").textContent, /ไม่ใช่ GPS/);
   assert.equal(h.requests.length, 1);
 });
 
@@ -277,13 +282,13 @@ test("an unanswered GPS permission request falls back within the app deadline an
   const expired = h.gpsCallbacks();
   [...h.timers.values()][0]();
   await settle();
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงดำเนินสะดวก");
+  assert.equal(h.get("place").textContent, "ดำเนินสะดวก");
   assert.equal(h.get("locate").disabled, false);
   h.get("locate").onclick();
   expired.success({ coords: { latitude: 12, longitude: 98, accuracy: 10 } });
   expired.error({ code: 1 });
   assert.equal(h.get("locate").disabled, true);
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงดำเนินสะดวก");
+  assert.equal(h.get("place").textContent, "ดำเนินสะดวก");
   h.success();
   await settle();
   assert.equal(h.get("place").textContent, "ตำแหน่ง GPS ปัจจุบัน");
@@ -348,7 +353,7 @@ test("canceling an old location request cannot dismiss the new location's loadin
   h.error(1);
   h.presets[1].onclick();
   await settle();
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงเมืองราชบุรี");
+  assert.equal(h.get("place").textContent, "เมืองราชบุรี");
   assert.equal(h.get("stations-loading").hidden, false);
   assert.equal(h.get("refresh").disabled, true);
   assert.equal(h.requests.length, 2);
@@ -389,8 +394,8 @@ test("manual selection wins over a late GPS callback and stays labeled as a refe
   h.presets[0].onclick();
   h.success();
   await settle();
-  assert.equal(h.get("place").textContent, "จุดอ้างอิงดำเนินสะดวก");
-  assert.match(h.get("location-status").textContent, /ไม่ใช่ตำแหน่ง GPS/);
+  assert.equal(h.get("place").textContent, "ดำเนินสะดวก");
+  assert.match(h.get("location-status").textContent, /ไม่ใช่ GPS/);
   assert.equal(h.requests.length, 1);
 });
 
@@ -603,7 +608,7 @@ test("forecast selector loads an unrendered station and clears when the referenc
   const h = harness({ responseData });
   h.success();
   await settle();
-  assert.equal(h.get("stations").children.length, 12);
+  assert.equal(h.get("stations").children.length, 6);
   const picker = h.get("forecast-station");
   assert.equal(picker.children.length, 15);
   picker.value = "15";
@@ -662,7 +667,59 @@ test("history cards expose all four periods and clearly explain unavailable data
     /ยังไม่มีข้อมูลย้อนหลัง/,
   );
   assert.match(
-    byClass(card, "station-route-details").children[2].children[1].textContent,
+    byClass(card, "station-route-preview").children[0].textContent,
     /ยังยืนยัน.*ไม่ได้/,
   );
+});
+
+test("search selects the exact Bang Nok Khwaek reference, closes the picker, and ignores late GPS", async () => {
+  const h = harness();
+  h.get("manual-toggle").onclick();
+  h.get("area-search").value = "บางนกแขวก";
+  h.get("area-search").oninput();
+  const results = h.get("area-results").children;
+  assert.equal(results[0].children[0].textContent, "บางนกแขวก");
+  results[0].onclick();
+  await settle();
+  assert.equal(h.get("place").textContent, "บางนกแขวก");
+  assert.match(
+    h.get("coords").textContent,
+    /13.50022, 99.92731.*จุดอ้างอิงพื้นที่/,
+  );
+  assert.match(h.requests[0], /lat=13.500218&lon=99.927311&radius=50/);
+  assert.equal(h.get("manual-location").hidden, true);
+  assert.equal(h.get("manual-toggle").attributes["aria-expanded"], "false");
+  h.success();
+  await settle();
+  assert.equal(h.get("place").textContent, "บางนกแขวก");
+  assert.equal(h.requests.length, 1);
+});
+
+test("province filter and name search combine locally without sending search text or coordinates", () => {
+  const h = harness();
+  h.get("area-province").value = "เชียงใหม่";
+  h.get("area-search").value = "เมือง";
+  h.get("area-search").oninput();
+  const results = h.get("area-results").children;
+  assert.ok(results.length > 0);
+  assert.ok(results.every((b) => b.children[1].textContent === "เชียงใหม่"));
+  assert.ok(results.every((b) => b.children[0].textContent.includes("เมือง")));
+  assert.equal(h.requests.length, 0);
+  h.get("area-search").value = "สถานที่ที่ไม่มีในรายการxyz";
+  h.get("area-search").oninput();
+  assert.equal(h.get("area-results").children.length, 0);
+  assert.match(h.get("area-count").textContent, /ไม่พบ.*ใส่พิกัดเอง/);
+  assert.equal(h.requests.length, 0);
+});
+
+test("expanded place references remain usable offline and Escape closes the picker", () => {
+  const h = harness();
+  h.context.navigator.onLine = false;
+  h.get("manual-toggle").onclick();
+  h.get("area-search").value = "บ้านโป่ง";
+  h.get("area-search").oninput();
+  assert.ok(h.get("area-results").children.length > 0);
+  assert.equal(h.requests.length, 0);
+  h.events.get("keydown")({ key: "Escape" });
+  assert.equal(h.get("manual-location").hidden, true);
 });

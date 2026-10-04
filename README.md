@@ -83,6 +83,14 @@ Status codes: 200 for fresh or usable stale cache, 400 invalid parameters, 429 r
 
 Source verification and remaining integrations: [docs/SOURCES.md](docs/SOURCES.md). Original supplied handoff: [docs/HANDOFF.md](docs/HANDOFF.md).
 
+## Mobile interface and area selection
+
+The interface puts the selected area, measured water level and recent trend first. Forecasts keep three horizons visible together on 320px screens. Station cards show readings, threshold comparisons and 1/3/6/24-hour changes; route explanations, provenance and calculation details open on demand. Fixed mobile links jump to the overview, outlook, stations and map. High-water notices, stale/missing states and essential forecast limitations remain visible. Six station cards appear initially, with six more per request.
+
+The picker offers 375 public reference entries across 73 provinces: the original three coordinates plus 372 RID reference points grouped by province/district, including Bang Nok Khwaek. Search matches area, province and station/tambon names locally, combines with a province filter and limits the displayed results to 12. RID coordinates identify a gauge in that area, not an administrative centroid or the user's GPS; the exact reference appears with the coordinates. The catalog is bundled and independent of live water availability; selecting an entry requests only the existing water/context services. Missing areas can use manual coordinates. GPS fallback and delayed-callback protection still apply.
+
+Design guidance used: the installed `mobile-app-ui-design` and `product-designer` skills, with their hierarchy, spacing, disclosure, touch target and accessibility principles applied to the existing HTML/CSS app.
+
 ## Conditional level outlook
 
 The forecast section defaults to the nearest gauge and can select any gauge in the current radius, including separate upstream/downstream Bang Nok Khwaek points. It displays 1/3/6-hour targets from the current page time. The model assumes the latest approximately one-hour average level-change rate stays constant:

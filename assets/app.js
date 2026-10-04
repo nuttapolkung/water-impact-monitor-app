@@ -19,13 +19,35 @@
       label: "จุดอ้างอิงเมืองสมุทรสงคราม",
     },
   };
+  const areas = [
+    ...Object.entries(presets).map(([id, p]) => ({
+      ...p,
+      id,
+      name: p.label.replace(/^จุดอ้างอิง/, ""),
+      province: id === "maeklong" ? "สมุทรสงคราม" : "ราชบุรี",
+      reference: "จุดอ้างอิงเดิม",
+      keywords: "",
+    })),
+    ...(window.WATER_AREAS || []).filter(
+      (a) =>
+        typeof a.id === "string" &&
+        typeof a.name === "string" &&
+        typeof a.province === "string" &&
+        Number.isFinite(a.lat) &&
+        Number.isFinite(a.lon) &&
+        a.lat >= 5 &&
+        a.lat <= 21 &&
+        a.lon >= 97 &&
+        a.lon <= 106,
+    ),
+  ];
   let here = null,
     lastData = null,
     timer = null,
     active = null,
     serial = 0,
     locationSerial = 0,
-    shown = 12;
+    shown = 6;
   let map = null,
     stationLayer = null,
     userLayer = null,
@@ -100,8 +122,8 @@
     $("verdict").style.color = color;
     $("confidence").textContent =
       a.confidence === "low"
-        ? "ความเชื่อมั่นต่อผลกระทบตำแหน่งนี้: ต่ำ"
-        : "ความเชื่อมั่น: ข้อมูลไม่เพียงพอ";
+        ? "ผลกระทบที่ตำแหน่งคุณ: ความเชื่อมั่นต่ำ"
+        : "ข้อมูลประเมินยังไม่พอ";
     list("reasons", a.reasons);
     if (a.limitations) list("limitations", a.limitations);
     const observedWarning = lastData?.stations?.some(
@@ -221,6 +243,88 @@
     if (text != null) node.textContent = text;
     return node;
   };
+  function paintAreaChoices() {
+    const tokens = $("area-search")
+      .value.trim()
+      .normalize("NFC")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    const province = $("area-province").value;
+    const matches = areas.filter(
+      (a) =>
+        (!province || a.province === province) &&
+        tokens.every((t) =>
+          `${a.name} ${a.province} ${a.keywords || ""}`
+            .normalize("NFC")
+            .toLowerCase()
+            .includes(t),
+        ),
+    );
+    if (tokens.length) {
+      const rank = (a) =>
+        tokens.every((t) => a.name.toLowerCase().includes(t)) ? 0 : 1;
+      matches.sort((a, b) => rank(a) - rank(b));
+    }
+    if (here && !tokens.length && !province)
+      matches.sort(
+        (a, b) =>
+          Math.hypot(
+            a.lat - here.lat,
+            (a.lon - here.lon) * Math.cos((here.lat * Math.PI) / 180),
+          ) -
+          Math.hypot(
+            b.lat - here.lat,
+            (b.lon - here.lon) * Math.cos((here.lat * Math.PI) / 180),
+          ),
+      );
+    const visible = matches.slice(0, 12);
+    $("area-count").textContent = !matches.length
+      ? "ไม่พบชื่อพื้นที่ ลองชื่อจังหวัด หรือใส่พิกัดเอง"
+      : tokens.length || province
+        ? `พบ ${matches.length} จุดอ้างอิง${matches.length > 12 ? " · แสดง 12 จุดแรก ลองระบุชื่อให้เจาะจง" : ""}`
+        : `${areas.length} จุดอ้างอิง · แนะนำใกล้พื้นที่ที่ดู`;
+    $("area-results").replaceChildren(
+      ...visible.map((a) => {
+        const button = element("button", "area-choice");
+        button.type = "button";
+        button.setAttribute("aria-label", `เลือก ${a.name} ${a.province}`);
+        button.append(
+          element("strong", "", a.name),
+          element("span", "", a.province),
+        );
+        button.onclick = () => {
+          setLocation({
+            lat: a.lat,
+            lon: a.lon,
+            label: a.label || `จุดอ้างอิง${a.name}`,
+            reference: a.reference,
+          });
+          closeAreaPicker();
+        };
+        return button;
+      }),
+    );
+  }
+  function closeAreaPicker() {
+    $("manual-location").hidden = true;
+    $("manual-toggle").setAttribute("aria-expanded", "false");
+    $("manual-toggle").focus?.();
+  }
+  function initAreaPicker() {
+    $("area-province").append(
+      ...[...new Set(areas.map((a) => a.province))]
+        .sort((a, b) => a.localeCompare(b, "th"))
+        .map((name) => {
+          const option = element("option", "", name);
+          option.value = name;
+          return option;
+        }),
+    );
+    $("area-search").oninput = paintAreaChoices;
+    $("area-province").onchange = paintAreaChoices;
+    paintAreaChoices();
+  }
   function stationState(s) {
     if (lastData?.source.status !== "fresh")
       return { label: "ข้อมูลที่เก็บไว้", color: "gray", current: false };
@@ -364,7 +468,7 @@
         `${s.name} · เฉลี่ยช่วง ${Math.round(rate.actualMinutes)} นาที · ${formatTime(rate.baselineAt)} → ${formatTime(rate.anchorAt)}`;
     } else if (fresh && Number.isFinite(s.riseRateCmPerHour)) {
       $("rise-rate").textContent =
-        `${s.riseRateCmPerHour > 0 ? "+" : ""}${s.riseRateCmPerHour.toFixed(1)} ซม./ชม.`;
+        `${s.riseRateCmPerHour > 0 ? "↑ เพิ่ม" : s.riseRateCmPerHour < 0 ? "↓ ลด" : "→ คงที่"} ${Math.abs(s.riseRateCmPerHour).toFixed(1)} ซม./ชม.`;
       $("trend").textContent =
         `${s.name} · เทียบเวลาวัดสองครั้ง ${formatTime(s.previousSensorUpdatedAt)} → ${formatTime(s.sensorUpdatedAt)}`;
     } else {
@@ -427,7 +531,7 @@
       stale: "ข้อมูลล่าสุดเก่าหรือเส้นทางต้นทางยังไม่พร้อม",
     };
     $("forecast-status").textContent = ready
-      ? `${station.name} · ค่าคาดการณ์ระดับที่จุดตรวจวัดนี้`
+      ? "เทียบกับค่าที่วัดล่าสุดของสถานีนี้"
       : !station
         ? pending
           ? "กำลังค้นหาสถานีและข้อมูลย้อนหลัง…"
@@ -454,7 +558,16 @@
           element(
             "p",
             "muted",
-            ready ? formatTime(point.at) : "ยังไม่มีค่าคาดการณ์",
+            ready
+              ? new Date(point.at).toLocaleString("th-TH", {
+                  timeZone: "Asia/Bangkok",
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                })
+              : "ยังไม่มีค่า",
           ),
         );
         if (ready) {
@@ -463,7 +576,7 @@
             element(
               "p",
               "muted",
-              `เทียบค่าที่วัดล่าสุด ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} ซม.`,
+              `${delta > 0 ? "↑" : delta < 0 ? "↓" : "→"} ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} ซม.`,
             ),
           );
         }
@@ -653,11 +766,14 @@
         return cell;
       }),
     );
+    const missing = result?.comparisons?.some((v) => v.status === "missing");
+    const approximate = result?.comparisons?.some((v) => v.approximate);
+    row.caption.hidden = result?.status === "ready" && !missing && !approximate;
     row.caption.textContent =
       !fresh || result?.status === "stale"
         ? "ข้อมูลล่าสุดเก่าหรือไม่ครบ ยังเทียบการเปลี่ยนแปลงไม่ได้"
         : result?.status === "ready"
-          ? `เทียบจากเวลาวัดของจุดนี้ ${formatTime(result.anchorAt)}${result.comparisons.some((v) => v.status === "missing") ? " · — ไม่มีค่าเทียบ" : ""}${result.comparisons.some((v) => v.approximate) ? " · ≈ ใช้เวลาใกล้เคียง" : ""}`
+          ? `${missing ? "— ไม่มีค่าเทียบ" : ""}${missing && approximate ? " · " : ""}${approximate ? "≈ ใช้เวลาใกล้เคียง" : ""}`
           : pending
             ? "กำลังโหลดข้อมูลย้อนหลัง…"
             : response?.status === "rate_limited"
@@ -773,7 +889,8 @@
         route.status === "documented" ? route.summary : route.origin,
       ),
     );
-    card.append(preview);
+    // Keep the documented route in its disclosure instead of repeating its prose.
+
     const details = element("details", "station-route-details");
     details.open = expanded.has(`${s.id}:route`);
     details.append(
@@ -797,6 +914,7 @@
       });
       details.append(path);
     }
+    details.append(preview);
     const facts = element("dl", "station-facts");
     facts.append(
       element(
@@ -871,7 +989,7 @@
       const context = element(
         "p",
         "station-context",
-        `ห่าง ${s.distanceKm.toFixed(1)} กม. จากจุดที่เลือก`,
+        `ห่าง ${s.distanceKm.toFixed(1)} กม.`,
       );
       card.append(
         context,
@@ -945,9 +1063,7 @@
       card.append(time);
       stationTimes.push({ node: time, station: s });
       const history = element("div", "station-history");
-      history.append(
-        element("p", "history-heading", "ระดับน้ำเปลี่ยนไปเท่าไร"),
-      );
+      history.append(element("p", "history-heading", "เทียบย้อนหลัง"));
       const grid = element("div", "history-grid"),
         caption = element("p", "history-caption"),
         historyFacts = element("div", "history-facts");
@@ -1064,7 +1180,7 @@
           : data.source.name || "ข้อมูลสถานี";
     $("source-status").textContent =
       data.source.status === "fresh"
-        ? `● ${sourceName}${data.source.fallback ? " · ข้อมูลสำรอง" : ""}`
+        ? "● รับข้อมูลแล้ว"
         : data.source.status === "stale"
           ? "● ใช้ข้อมูลที่เก็บไว้"
           : "● ต้นทางไม่พร้อมใช้งาน";
@@ -1080,11 +1196,10 @@
           ? "กำลังใช้ข้อมูลที่เก็บไว้ กรุณาตรวจเวลาวัดของแต่ละสถานี"
           : "ยังรับข้อมูลสถานีไม่ได้ กรุณาตรวจอีกครั้งภายหลัง"
         : data.stations.length
-          ? `พบ ${data.stations.length} จุดตรวจวัดใน ${data.radiusKm} กม. · ${data.stations.filter((s) => s.dataQuality === "fresh").length} จุดมีข้อมูลล่าสุด${data.stations.some((s) => s.dataQuality !== "fresh") ? " · ป้ายสีเทาคือข้อมูลเก่าหรือไม่ครบ" : ""}`
+          ? `${data.stations.length} สถานี · ${data.stations.filter((s) => s.dataQuality === "fresh").length} จุดมีข้อมูลล่าสุด${data.stations.some((s) => s.dataQuality !== "fresh") ? " · สีเทาคือข้อมูลเก่า/ไม่ครบ" : ""}`
           : "ไม่พบสถานีในรัศมีนี้ ลองขยายรัศมีหรือเลือกพื้นที่อื่น";
     if (data.source.partial)
-      $("data-status").textContent +=
-        " · บางแหล่งยังไม่พร้อม รายการสถานีอาจไม่ครบ";
+      $("data-status").textContent += " · รายการอาจยังไม่ครบ";
     $("source-details").hidden = false;
     $("source-detail").textContent =
       `${data.source.name || sourceName} · ${data.source.message || "ข้อมูลจากหน่วยงานเจ้าของสถานี"}${data.source.fetchedAt ? " · แอปรับข้อมูลเมื่อ " + formatTime(data.source.fetchedAt) : ""}`;
@@ -1101,7 +1216,7 @@
     $("nearest").textContent =
       s?.name || (unavailable ? "ยังไม่มีข้อมูล" : "ไม่พบสถานี");
     $("near-distance").textContent = s
-      ? `${s.distanceKm.toFixed(1)} กม. · ${qualityText(s)}`
+      ? `${s.distanceKm.toFixed(1)} กม. · ${stationState(s).label}`
       : unavailable
         ? "ต้นทางไม่พร้อมใช้งาน"
         : "ลองขยายรัศมีค้นหา";
@@ -1156,7 +1271,7 @@
     $("observations").setAttribute("aria-busy", String(busy));
     $("observations").setAttribute("data-loading", String(initial));
     $("refresh").disabled = busy;
-    $("refresh").textContent = busy ? "กำลังโหลด…" : "↻ ตรวจอีกครั้ง";
+    $("refresh").textContent = busy ? "กำลังโหลด…" : "↻ ตรวจใหม่";
     paintForecast();
   }
   async function load() {
@@ -1296,16 +1411,16 @@
     forecastRequestFailed = false;
     paintForecast();
     contextState = null;
-    shown = 12;
-    $("place").textContent = here.label;
+    shown = 6;
+    $("place").textContent = here.label.replace(/^จุดอ้างอิง/, "");
     $("coords").textContent =
-      `${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}${here.accuracy != null ? ` · คลาดเคลื่อน ±${Math.round(here.accuracy)} ม.` : here.default ? " · จุดอ้างอิงเริ่มต้น" : " · พิกัดที่เลือกเอง"}`;
+      `${here.lat.toFixed(5)}, ${here.lon.toFixed(5)}${here.accuracy != null ? ` · คลาดเคลื่อน ±${Math.round(here.accuracy)} ม.` : here.default ? " · จุดอ้างอิงเริ่มต้น" : here.reference ? " · จุดอ้างอิงพื้นที่" : " · พิกัดที่เลือกเอง"}${here.reference ? ` · จุดอ้างอิง: ${here.reference}` : ""}`;
     $("location-status").textContent =
       here.accuracy != null
         ? "ได้รับตำแหน่ง GPS แล้ว"
         : here.default
-          ? "ใช้จุดอ้างอิงดำเนินสะดวกอัตโนมัติ ไม่ใช่ตำแหน่ง GPS ของคุณ"
-          : "กำลังตรวจพื้นที่ที่เลือก ไม่ใช่ตำแหน่ง GPS ของคุณ";
+          ? "จุดอ้างอิงดำเนินสะดวกอัตโนมัติ · ไม่ใช่ GPS"
+          : "จุดอ้างอิงพื้นที่ · ไม่ใช่ GPS ของคุณ";
     $("manual-lat").value = here.lat;
     $("manual-lon").value = here.lon;
     $("nearest").textContent = $("near-level").textContent = "—";
@@ -1336,7 +1451,7 @@
   function locationUnavailable(reason) {
     if (!here) setLocation({ ...presets.damnoen, default: true });
     $("location-status").textContent =
-      `${reason} · ${here.default ? "ใช้จุดอ้างอิงดำเนินสะดวกอัตโนมัติ ไม่ใช่ตำแหน่ง GPS ของคุณ" : "ยังใช้พื้นที่เดิมที่แสดงอยู่"} สามารถเลือกพื้นที่อื่นได้`;
+      `${reason} · ${here.default ? "ใช้จุดอ้างอิงดำเนินสะดวกอัตโนมัติ · ไม่ใช่ GPS" : "ยังใช้พื้นที่เดิม"}`;
   }
   function locate() {
     if (requestingGps) return;
@@ -1395,6 +1510,10 @@
     const open = $("manual-location").hidden;
     $("manual-location").hidden = !open;
     $("manual-toggle").setAttribute("aria-expanded", String(open));
+    if (open) {
+      paintAreaChoices();
+      $("area-search").focus?.();
+    }
   };
   document.querySelectorAll("[data-preset]").forEach((button) => {
     button.onclick = () => setLocation({ ...presets[button.dataset.preset] });
@@ -1410,8 +1529,10 @@
       lat <= 90 &&
       lon >= -180 &&
       lon <= 180
-    )
+    ) {
       setLocation({ lat, lon, label: "พิกัดที่เลือกเอง" });
+      closeAreaPicker();
+    }
   };
   $("refresh").onclick = () => load();
   $("forecast-station").onchange = () => {
@@ -1424,7 +1545,7 @@
     setLocation({ ...here });
   };
   $("show-more").onclick = () => {
-    shown += 12;
+    shown += 6;
     renderStations();
   };
   document.addEventListener("visibilitychange", () => {
@@ -1451,6 +1572,11 @@
   }
   window.addEventListener("offline", showOffline);
   window.addEventListener("online", load);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("manual-location").hidden)
+      closeAreaPicker();
+  });
+  initAreaPicker();
   initMap();
   initLoading();
   locate();
