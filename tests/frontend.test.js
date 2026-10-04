@@ -591,6 +591,61 @@ test("station details stay open while polling updates age and measurements; tech
   );
 });
 
+test("forecast selector loads an unrendered station and clears when the reference location changes", async () => {
+  const responseData = {
+    ...data,
+    stations: Array.from({ length: 15 }, (_, i) => ({
+      ...station,
+      id: String(i + 1),
+      name: `สถานี ${i + 1}`,
+    })),
+  };
+  const h = harness({ responseData });
+  h.success();
+  await settle();
+  assert.equal(h.get("stations").children.length, 12);
+  const picker = h.get("forecast-station");
+  assert.equal(picker.children.length, 15);
+  picker.value = "15";
+  picker.onchange();
+  assert.equal(h.get("forecast-grid").attributes["aria-busy"], "true");
+  await settle();
+  assert.match(h.get("forecast-status").textContent, /ยังคาดการณ์ไม่ได้/);
+  assert.ok(
+    h
+      .get("forecast-grid")
+      .children.every((c) => c.children[1].textContent === "—"),
+  );
+  h.presets[1].onclick();
+  assert.equal(picker.value, "");
+  assert.equal(picker.disabled, true);
+  assert.equal(h.get("forecast-basis").textContent, "");
+});
+
+test("forecast placeholders finish loading and explain loss of source access or offline state", async () => {
+  const h = harness({ deferredFetch: true });
+  h.error(2);
+  assert.equal(h.get("forecast-grid").attributes["aria-busy"], "true");
+  h.pendingFetches[0].resolve();
+  await settle();
+  assert.equal(h.get("forecast-grid").attributes["aria-busy"], "false");
+  h.get("refresh").onclick();
+  h.pendingFetches[1].reject();
+  await settle();
+  assert.match(h.get("forecast-status").textContent, /หยุดคาดการณ์ชั่วคราว/);
+  assert.ok(
+    h
+      .get("forecast-grid")
+      .children.every((c) => c.children[1].textContent === "—"),
+  );
+  h.context.navigator.onLine = false;
+  h.events.get("offline")();
+  assert.match(
+    h.get("forecast-status").textContent,
+    /ยังตรวจข้อมูลล่าสุดไม่ได้/,
+  );
+});
+
 test("history cards expose all four periods and clearly explain unavailable data and unknown water origin", async () => {
   const h = harness({ responseData: ridData() });
   h.success();

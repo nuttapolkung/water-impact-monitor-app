@@ -83,6 +83,16 @@ Status codes: 200 for fresh or usable stale cache, 400 invalid parameters, 429 r
 
 Source verification and remaining integrations: [docs/SOURCES.md](docs/SOURCES.md). Original supplied handoff: [docs/HANDOFF.md](docs/HANDOFF.md).
 
+## Conditional level outlook
+
+The forecast section defaults to the nearest gauge and can select any gauge in the current radius, including separate upstream/downstream Bang Nok Khwaek points. It displays 1/3/6-hour targets from the current page time. The model assumes the latest approximately one-hour average level-change rate stays constant:
+
+`projected level = last measured level + measured rate × (target time − measurement time)`
+
+Calculations use the graph's unrounded levels and actual interval, preserve MSL/station-local datum, and include the delay since the last measurement. Eligibility requires a fresh source, compatible current reading and channel, a measured value no more than one hour old, a baseline within the existing ±15-minute tolerance, at least three real samples, and no gap exceeding 30 minutes inside the baseline interval. Missing/stale/mismatched data produces no projection. A failed dashboard refresh or offline state hides projections until fresh data can be checked.
+
+This is an unvalidated constant-rate scenario, not a calibrated hydraulic forecast. It uses level change in cm/hour, not discharge in m³/s; the nearby RID gauge snapshots inspected on 4 October did not contain verified discharge values. The [USGS rating-curve explanation](https://www.usgs.gov/centers/wyoming-montana-water-science-center/creating-rating-curve) describes why stage/discharge conversion needs a site-specific relationship. Future rain, tide and gate operations are not modeled. No prediction intervals, accuracy percentages, flood arrival times or property impact claims are generated; projections do not enter screening. Backtesting and hydraulic/provider inputs remain future work.
+
 ## Tide-table maintenance
 
 `assets/tide-tables-2026.js` contains 17,520 hourly predictions, source PDF URLs and SHA-256 checksums. It expires at the end of 2026; it never repeats an old year's table. The offline importer requires `pypdf` and the two official MSL PDFs, in Mae Klong / Tha Chin order:

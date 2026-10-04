@@ -339,6 +339,10 @@
   let historyRows = new Map(),
     visibleHistory = new Set();
   const historyPeriods = [1, 3, 6, 24];
+  let forecastModule,
+    forecastStationId = null,
+    forecastOptionsKey = "",
+    forecastRequestFailed = false;
   let contextModule,
     contextImport,
     contextState = null,
@@ -372,6 +376,103 @@
         ? `${s.name} · ${fresh ? "ต้องมีค่าของจุดวัดเดียวกันและเวลาครบ" : "ข้อมูลล่าสุดเก่าหรือไม่ครบ"}`
         : "ยังไม่มีสถานีที่เทียบได้";
     }
+    paintForecast();
+  }
+  function paintForecast() {
+    const stations = lastData?.stations || [];
+    const picker = $("forecast-station");
+    const key = JSON.stringify(
+      stations.map((s) => [s.id, s.name, s.distanceKm]),
+    );
+    if (key !== forecastOptionsKey) {
+      forecastOptionsKey = key;
+      picker.replaceChildren(
+        ...(stations.length
+          ? stations.map((s) => {
+              const option = element(
+                "option",
+                "",
+                `${s.name} · ${s.distanceKm.toFixed(1)} กม.`,
+              );
+              option.value = s.id;
+              return option;
+            })
+          : [element("option", "", "รอข้อมูลสถานี")]),
+      );
+    }
+    if (!stations.some((s) => s.id === forecastStationId))
+      forecastStationId = stations[0]?.id || null;
+    picker.value = forecastStationId || "";
+    picker.disabled = !stations.length;
+    const station = stations.find((s) => s.id === forecastStationId);
+    const response = station && historyResponses.get(station.id);
+    const pending =
+      (!!station && historyPending.has(station.id)) || (!lastData && !!active);
+    const result =
+      station &&
+      response?.status === "ready" &&
+      forecastModule &&
+      navigator.onLine &&
+      !forecastRequestFailed
+        ? forecastModule.forecastWaterLevel(station, response.data, {
+            sourceStatus: lastData.source.status,
+          })
+        : null;
+    const ready = result?.status === "ready";
+    const reasons = {
+      old_reading: "ค่าตรวจวัดเกิน 1 ชั่วโมง หรือเวลายังไม่ตรง",
+      sparse_history: "ข้อมูลชั่วโมงล่าสุดไม่ต่อเนื่องพอ",
+      missing_baseline: "ไม่มีค่าที่เทียบย้อนหลัง 1 ชั่วโมง",
+      incompatible: "ระดับน้ำหรือจุดวัดในกราฟยังไม่ตรงข้อมูลล่าสุด",
+      stale: "ข้อมูลล่าสุดเก่าหรือเส้นทางต้นทางยังไม่พร้อม",
+    };
+    $("forecast-status").textContent = ready
+      ? `${station.name} · ค่าคาดการณ์ระดับที่จุดตรวจวัดนี้`
+      : !station
+        ? pending
+          ? "กำลังค้นหาสถานีและข้อมูลย้อนหลัง…"
+          : "รอข้อมูลสถานีของพื้นที่ที่เลือก"
+        : !navigator.onLine || forecastRequestFailed
+          ? "หยุดคาดการณ์ชั่วคราว · ยังตรวจข้อมูลล่าสุดไม่ได้"
+          : pending
+            ? "กำลังโหลดกราฟจริงเพื่อคำนวณแนวโน้ม…"
+            : `ยังคาดการณ์ไม่ได้ · ${reasons[result?.reason] || "ต้องมีกราฟย้อนหลังที่เทียบได้และค่าตรวจวัดใหม่"}`;
+    $("forecast-grid").setAttribute("aria-busy", String(pending));
+    $("forecast-grid").replaceChildren(
+      ...[1, 3, 6].map((hours) => {
+        const point = result?.projections?.find((p) => p.hours === hours);
+        const cell = element("article", "forecast-cell");
+        cell.append(element("p", "label", `อีก ${hours} ชม.`));
+        cell.append(
+          element(
+            "strong",
+            `forecast-level${pending && !ready ? " skeleton skeleton-history" : ""}`,
+            ready ? `≈ ${point.level.toFixed(2)} ม.` : pending ? "" : "—",
+          ),
+        );
+        cell.append(
+          element(
+            "p",
+            "muted",
+            ready ? formatTime(point.at) : "ยังไม่มีค่าคาดการณ์",
+          ),
+        );
+        if (ready) {
+          const delta = Math.round(point.deltaCm * 10) / 10 || 0;
+          cell.append(
+            element(
+              "p",
+              "muted",
+              `เทียบค่าที่วัดล่าสุด ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} ซม.`,
+            ),
+          );
+        }
+        return cell;
+      }),
+    );
+    $("forecast-basis").textContent = ready
+      ? `ตั้งต้น ${result.baseLevel.toFixed(3)} ม. · ${result.datum === "msl" ? "เทียบระดับทะเลปานกลาง" : "เทียบจุดอ้างอิงเฉพาะสถานี"} · วัด ${formatTime(result.anchorAt)} · อัตราเฉลี่ย ${(result.rateMPerHour * 100).toFixed(2)} ซม./ชม. จาก ${result.sampleCount} ค่า ใน ${Math.round(result.actualMinutes)} นาที · คำนวณระดับล่าสุด + อัตรา × เวลาถึงเป้าหมาย`
+      : "";
   }
   function paintContext(rain) {
     if (!contextModule || !here) return;
@@ -618,22 +719,27 @@
   }
   async function loadHistory(id) {
     const row = historyRows.get(id),
-      old = historyResponses.get(id);
+      old = historyResponses.get(id),
+      station = row?.station || lastData?.stations.find((s) => s.id === id);
     if (
-      !row ||
+      !station ||
       document.hidden ||
       lastData?.source.status !== "fresh" ||
-      row.station.dataQuality !== "fresh" ||
+      station.dataQuality !== "fresh" ||
       historyPending.has(id) ||
       old?.expiresAt > Date.now()
     )
       return;
     historyPending.add(id);
-    paintHistory(row);
+    if (row) paintHistory(row);
+    paintForecast();
     try {
-      historyImport ||= import("./history.js?v=20261004-context");
-      historyModule = await historyImport;
-      const response = await historyModule.historySource.get(row.station);
+      historyImport ||= Promise.all([
+        import("./history.js?v=20261004-forecast"),
+        import("./forecast.js?v=20261004-forecast"),
+      ]);
+      [historyModule, forecastModule] = await historyImport;
+      const response = await historyModule.historySource.get(station);
       if (historyResponses.size >= 256 && !historyResponses.has(id))
         historyResponses.delete(historyResponses.keys().next().value);
       historyResponses.set(id, response);
@@ -646,6 +752,7 @@
       historyPending.delete(id);
       if (historyRows.has(id)) paintHistory(historyRows.get(id));
       if (lastData?.stations[0]?.id === id) paintRate();
+      else if (forecastStationId === id) paintForecast();
     }
   }
   function appendRoute(card, s, expanded) {
@@ -945,6 +1052,7 @@
     $("show-more").hidden = shown >= rows.length;
   }
   function render(data) {
+    forecastRequestFailed = false;
     lastData = data;
     assessment(data.assessment);
     const sourceName = data.source.name?.includes(" + ")
@@ -1007,6 +1115,8 @@
       `แอปรับข้อมูลต้นทาง: ${formatTime(data.updatedAt)}`;
     renderStations();
     if (s) void loadHistory(s.id);
+    if (forecastStationId && forecastStationId !== s?.id)
+      void loadHistory(forecastStationId);
     paintRate();
     void loadContext();
     updateMap(data.stations);
@@ -1047,6 +1157,7 @@
     $("observations").setAttribute("data-loading", String(initial));
     $("refresh").disabled = busy;
     $("refresh").textContent = busy ? "กำลังโหลด…" : "↻ ตรวจอีกครั้ง";
+    paintForecast();
   }
   async function load() {
     clearTimeout(timer);
@@ -1138,6 +1249,8 @@
       render(data);
     } catch (error) {
       if (requestId !== serial) return;
+      forecastRequestFailed = true;
+      paintForecast();
       $("source-status").textContent = "● ยังตรวจข้อมูลล่าสุดไม่ได้";
       $("source-status").className = "badge yellow";
       assessment({
@@ -1179,6 +1292,9 @@
     resetRequest();
     here = location;
     lastData = null;
+    forecastStationId = null;
+    forecastRequestFailed = false;
+    paintForecast();
     contextState = null;
     shown = 12;
     $("place").textContent = here.label;
@@ -1298,6 +1414,11 @@
       setLocation({ lat, lon, label: "พิกัดที่เลือกเอง" });
   };
   $("refresh").onclick = () => load();
+  $("forecast-station").onchange = () => {
+    forecastStationId = $("forecast-station").value;
+    paintForecast();
+    void loadHistory(forecastStationId);
+  };
   $("radius").onchange = () => {
     if (!here) return;
     setLocation({ ...here });
@@ -1313,6 +1434,8 @@
   });
   function showOffline() {
     resetRequest();
+    forecastRequestFailed = true;
+    paintForecast();
     $("data-status").textContent = lastData
       ? "ออฟไลน์ ข้อมูลที่แสดงเป็นการตรวจครั้งก่อน"
       : "ออฟไลน์ เชื่อมต่ออินเทอร์เน็ตเพื่อโหลดข้อมูลสถานี";

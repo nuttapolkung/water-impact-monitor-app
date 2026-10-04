@@ -717,6 +717,52 @@ li {
   font-size: 12px;
   margin-top: 8px;
 }
+.forecast-picker {
+  display: grid;
+  gap: 4px;
+  width: min(400px, 100%);
+  min-width: 0;
+}
+.forecast-picker label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.forecast-picker select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  text-overflow: ellipsis;
+}
+.forecast-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.forecast-cell {
+  padding: 18px;
+  border: 1px dashed #49766f;
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+}
+.forecast-level {
+  display: block;
+  font-size: 25px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.forecast-cell .muted {
+  font-size: 12px;
+}
+.forecast-assumption {
+  margin-top: 8px;
+}
+@media (max-width: 560px) {
+  .forecast-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .route-summary {
   color: #d0e1df;
   font-size: 12px;

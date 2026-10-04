@@ -14,10 +14,10 @@
     <title>Water Impact Monitor · ติดตามน้ำรอบตัว</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/assets/vendor/leaflet.css" />
-    <link rel="stylesheet" href="/assets/style.css?v=20261004-context" />
+    <link rel="stylesheet" href="/assets/style.css?v=20261004-forecast" />
     <script src="/assets/vendor/leaflet.js" defer></script>
     <script src="/assets/config.js" defer></script>
-    <script src="/assets/app.js?v=20261004-context-rid" defer></script>
+    <script src="/assets/app.js?v=20261004-forecast" defer></script>
   </head>
   <body>
     <a href="#dashboard" class="skip">ข้ามไปที่ข้อมูล</a>
@@ -229,6 +229,31 @@
           </article>
         </div>
       </section>
+      <section id="forecast" aria-labelledby="forecast-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">LEVEL OUTLOOK / แนวโน้มระดับน้ำ</p>
+            <h2 id="forecast-title">คาดการณ์ถ้าอัตราล่าสุดคงเดิม</h2>
+          </div>
+          <div class="forecast-picker">
+            <label for="forecast-station">จุดตรวจวัดที่ต้องการคาดการณ์</label>
+            <select id="forecast-station" disabled>
+              <option value="">รอข้อมูลสถานี</option>
+            </select>
+          </div>
+        </div>
+        <p id="forecast-status" class="muted" role="status">
+          เลือกพื้นที่เพื่อดูแนวโน้มระดับน้ำ
+        </p>
+        <div id="forecast-grid" class="forecast-grid" aria-busy="false"></div>
+        <p id="forecast-basis" class="fine"></p>
+        <p class="fine forecast-assumption">
+          ใช้อัตราการเพิ่ม/ลดระดับน้ำของชั่วโมงล่าสุด (ซม./ชม.)
+          สมมติให้อัตรานี้คงเดิม ยังไม่รวมผลฝน น้ำทะเล และการเปิดประตูน้ำในอนาคต
+          ความแม่นยำยังไม่ได้ทดสอบย้อนหลัง ค่านี้เป็นระดับที่สถานี
+          ไม่ใช่ระดับน้ำท่วมที่ตำแหน่งคุณ
+        </p>
+      </section>
       <section class="map-section" aria-labelledby="map-title">
         <div class="section-head">
           <div>
@@ -293,7 +318,9 @@
             ยังไม่มีระดับความสูงของตำแหน่งคุณ แนวคันกั้นน้ำ
             และเส้นทางน้ำที่เชื่อมกับตำแหน่งนี้
           </li>
-          <li>คะแนนยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต</li>
+          <li>
+            คะแนนยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต
+          </li>
           <li>
             สถานีที่อยู่ใกล้อาจอยู่คนละลำน้ำ
             ไม่ได้ยืนยันว่าสถานีอยู่ต้นน้ำหรือปลายน้ำของคุณ
