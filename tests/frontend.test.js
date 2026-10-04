@@ -11,6 +11,10 @@ const areaScript = readFileSync(
   new URL("../assets/areas.js", import.meta.url),
   "utf8",
 );
+const photoScript = readFileSync(
+  new URL("../assets/station-photos.js", import.meta.url),
+  "utf8",
+);
 const station = {
   id: "754",
   name: "<img src=x onerror=alert(1)>",
@@ -162,6 +166,7 @@ function harness({
     console,
   };
   vm.runInNewContext(areaScript, context);
+  vm.runInNewContext(photoScript, context);
   vm.runInNewContext(script, context);
   return {
     get,
@@ -722,4 +727,36 @@ test("expanded place references remain usable offline and Escape closes the pick
   assert.equal(h.requests.length, 0);
   h.events.get("keydown")({ key: "Escape" });
   assert.equal(h.get("manual-location").hidden, true);
+});
+
+test("station photos load only on request, handle errors, and keep their loaded node across sensor updates", async () => {
+  const s = {
+    ...station,
+    source: "RID",
+    id: "rid:383:0",
+    stationId: "rid:383",
+    code: "TMK03/WL_UP",
+    lat: 13.500218,
+    lon: 99.9273112,
+    name: "ปตร.บางนกแขวก · เหนือน้ำ",
+  };
+  const h = harness({
+    geolocation: false,
+    responseData: { ...data, stations: [s] },
+  });
+  await settle();
+  const panel = byClass(h.get("stations").children[0], "station-photo");
+  const image = byClass(panel, "station-photo-image");
+  assert.equal(image.src, undefined);
+  panel.open = true;
+  panel.ontoggle();
+  assert.match(image.src, /^https:\/\/bnk\.go\.th\//);
+  image.onerror();
+  assert.equal(image.hidden, true);
+  assert.match(byClass(panel, "photo-status").textContent, /โหลดภาพไม่ได้/);
+  h.respond({ ...data, stations: [{ ...s, waterLevelMsl: 0.53 }] });
+  h.get("refresh").onclick();
+  await settle();
+  assert.equal(byClass(h.get("stations").children[0], "station-photo"), panel);
+  assert.equal(panel.open, true);
 });

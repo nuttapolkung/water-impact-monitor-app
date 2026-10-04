@@ -14,11 +14,13 @@
     <title>Water Impact Monitor · ติดตามน้ำรอบตัว</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/assets/vendor/leaflet.css" />
-    <link rel="stylesheet" href="/assets/style.css?v=20261004-mobile" />
+    <link rel="stylesheet" href="/assets/style.css?v=20261004-motion" />
     <script src="/assets/vendor/leaflet.js" defer></script>
     <script src="/assets/config.js" defer></script>
     <script src="/assets/areas.js?v=20261004-mobile" defer></script>
-    <script src="/assets/app.js?v=20261004-mobile" defer></script>
+    <script src="/assets/motion.js?v=20261004-motion" defer></script>
+    <script src="/assets/station-photos.js?v=20261004-motion" defer></script>
+    <script src="/assets/app.js?v=20261004-motion" defer></script>
   </head>
   <body>
     <a href="#dashboard" class="skip">ข้ามไปที่ข้อมูล</a>
@@ -52,7 +54,7 @@
           </button>
         </div>
         <p id="location-status" role="status">กำลังค้นหาตำแหน่ง…</p>
-        <div id="manual-location" class="manual" hidden>
+        <div id="manual-location" class="manual" data-motion hidden>
           <label for="area-search">ค้นหาพื้นที่ อำเภอ หรือจังหวัด</label>
           <input
             id="area-search"
@@ -180,7 +182,7 @@
             <p id="near-distance" class="muted">กำลังค้นหาสถานี</p>
           </div>
           <div class="nearest-reading">
-            <h3 id="near-level">—</h3>
+            <h3 id="near-level" data-motion>—</h3>
             <p class="fine">ระดับที่สถานี ไม่ใช่ความลึกน้ำท่วม</p>
           </div>
           <p id="sensor-time" class="muted">เวลาตรวจวัด: —</p>
@@ -215,6 +217,17 @@
           เลือกพื้นที่เพื่อดูแนวโน้ม
         </p>
         <div id="forecast-grid" class="forecast-grid" aria-busy="false"></div>
+        <figure id="forecast-visual" class="forecast-visual" data-motion hidden>
+          <svg
+            id="forecast-line"
+            viewBox="0 0 320 68"
+            role="img"
+            aria-label="แนวโน้มระดับน้ำตามอัตราล่าสุด"
+          ></svg>
+          <figcaption>
+            ● ค่าที่วัดล่าสุด <span>┄ แนวโน้มอีก 1 / 3 / 6 ชม.</span>
+          </figcaption>
+        </figure>
         <p class="fine forecast-caveat">
           แนวโน้มที่สถานี · ยังไม่รวมฝน น้ำทะเล และการเปิดประตูน้ำ
         </p>

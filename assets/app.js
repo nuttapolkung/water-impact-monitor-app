@@ -2,6 +2,7 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   const config = window.WATER_CONFIG || {};
+  const motion = window.WATER_MOTION;
   const colors = {
     green: "#168254",
     yellow: "#b37e10",
@@ -446,6 +447,7 @@
   let forecastModule,
     forecastStationId = null,
     forecastOptionsKey = "",
+    forecastRenderKey = "",
     forecastRequestFailed = false;
   let contextModule,
     contextImport,
@@ -542,50 +544,125 @@
             ? "กำลังโหลดกราฟจริงเพื่อคำนวณแนวโน้ม…"
             : `ยังคาดการณ์ไม่ได้ · ${reasons[result?.reason] || "ต้องมีกราฟย้อนหลังที่เทียบได้และค่าตรวจวัดใหม่"}`;
     $("forecast-grid").setAttribute("aria-busy", String(pending));
-    $("forecast-grid").replaceChildren(
-      ...[1, 3, 6].map((hours) => {
-        const point = result?.projections?.find((p) => p.hours === hours);
-        const cell = element("article", "forecast-cell");
-        cell.append(element("p", "label", `อีก ${hours} ชม.`));
-        cell.append(
-          element(
-            "strong",
-            `forecast-level${pending && !ready ? " skeleton skeleton-history" : ""}`,
-            ready ? `≈ ${point.level.toFixed(2)} ม.` : pending ? "" : "—",
-          ),
-        );
-        cell.append(
-          element(
-            "p",
-            "muted",
-            ready
-              ? new Date(point.at).toLocaleString("th-TH", {
-                  timeZone: "Asia/Bangkok",
-                  day: "numeric",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  hour12: false,
-                })
-              : "ยังไม่มีค่า",
-          ),
-        );
-        if (ready) {
-          const delta = Math.round(point.deltaCm * 10) / 10 || 0;
+    const viewKey = JSON.stringify([
+      station?.id,
+      ready,
+      pending && !ready,
+      result?.projections?.map((p) => [
+        p.level.toFixed(2),
+        p.deltaCm.toFixed(1),
+        Math.floor(Date.parse(p.at) / 60000),
+      ]),
+    ]);
+    if (viewKey !== forecastRenderKey) {
+      forecastRenderKey = viewKey;
+      $("forecast-grid").replaceChildren(
+        ...[1, 3, 6].map((hours) => {
+          const point = result?.projections?.find((p) => p.hours === hours);
+          const cell = element("article", "forecast-cell");
+          cell.append(element("p", "label", `อีก ${hours} ชม.`));
+          cell.append(
+            element(
+              "strong",
+              `forecast-level${pending && !ready ? " skeleton skeleton-history" : ""}`,
+              ready ? `≈ ${point.level.toFixed(2)} ม.` : pending ? "" : "—",
+            ),
+          );
           cell.append(
             element(
               "p",
               "muted",
-              `${delta > 0 ? "↑" : delta < 0 ? "↓" : "→"} ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} ซม.`,
+              ready
+                ? new Date(point.at).toLocaleString("th-TH", {
+                    timeZone: "Asia/Bangkok",
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                  })
+                : "ยังไม่มีค่า",
             ),
           );
-        }
-        return cell;
-      }),
-    );
+          if (ready) {
+            const delta = Math.round(point.deltaCm * 10) / 10 || 0;
+            cell.append(
+              element(
+                "p",
+                "muted",
+                `${delta > 0 ? "↑" : delta < 0 ? "↓" : "→"} ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} ซม.`,
+              ),
+            );
+          }
+          return cell;
+        }),
+      );
+      paintForecastVisual(result, station, ready);
+    }
     $("forecast-basis").textContent = ready
       ? `ตั้งต้น ${result.baseLevel.toFixed(3)} ม. · ${result.datum === "msl" ? "เทียบระดับทะเลปานกลาง" : "เทียบจุดอ้างอิงเฉพาะสถานี"} · วัด ${formatTime(result.anchorAt)} · อัตราเฉลี่ย ${(result.rateMPerHour * 100).toFixed(2)} ซม./ชม. จาก ${result.sampleCount} ค่า ใน ${Math.round(result.actualMinutes)} นาที · คำนวณระดับล่าสุด + อัตรา × เวลาถึงเป้าหมาย`
       : "";
+  }
+  function paintForecastVisual(result, station, ready) {
+    const figure = $("forecast-visual");
+    figure.hidden = !ready;
+    if (!ready) return;
+    const svg = $("forecast-line");
+    const points = [
+      { at: result.anchorAt, level: result.baseLevel, label: "ล่าสุด" },
+      ...result.projections.map((p) => ({ ...p, label: `+${p.hours} ชม.` })),
+    ];
+    const values = points.map((p) => p.level);
+    const min = Math.min(...values),
+      max = Math.max(...values);
+    const span = Math.max(0.02, max - min);
+    const start = Date.parse(points[0].at),
+      end = Date.parse(points.at(-1).at);
+    const coordinates = points.map((p) => ({
+      x: 20 + (280 * (Date.parse(p.at) - start)) / (end - start),
+      y: 14 + (32 * ((max + min) / 2 + span / 2 - p.level)) / span,
+    }));
+    const shape = (tag, attributes) => {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+      for (const [key, value] of Object.entries(attributes))
+        node.setAttribute(key, value);
+      return node;
+    };
+    const line = shape("polyline", {
+      points: coordinates.map((p) => `${p.x},${p.y}`).join(" "),
+      class: "forecast-projection",
+      fill: "none",
+    });
+    svg.replaceChildren(
+      line,
+      ...coordinates.flatMap((p, index) => {
+        const label = shape("text", { x: p.x, y: 64, "text-anchor": "middle" });
+        label.textContent = points[index].label;
+        return [
+          shape("circle", {
+            cx: p.x,
+            cy: p.y,
+            r: index ? 3 : 4,
+            class: index ? "forecast-point" : "forecast-anchor",
+          }),
+          label,
+        ];
+      }),
+    );
+    svg.setAttribute(
+      "aria-label",
+      `${station.name}: ค่าที่วัดล่าสุด ${result.baseLevel.toFixed(2)} เมตร; ${result.projections.map((p) => `แนวโน้มอีก ${p.hours} ชั่วโมง ${p.level.toFixed(2)} เมตร`).join("; ")}; ถ้าอัตราล่าสุดคงเดิม`,
+    );
+    // Changing clock targets must not replay motion on every five-second poll.
+    motion?.update(
+      figure,
+      JSON.stringify([
+        station.id,
+        result.anchorAt,
+        result.baseLevel,
+        result.rateMPerHour,
+      ]),
+    );
   }
   function paintContext(rain) {
     if (!contextModule || !here) return;
@@ -960,6 +1037,11 @@
     const expanded = new Set(
       stationDetails.filter(({ node }) => node.open).map(({ id }) => id),
     );
+    const photoPanels = new Map(
+      stationDetails
+        .filter(({ id }) => id.endsWith(":photo"))
+        .map(({ id, node }) => [id, node]),
+    );
     stationTimes = [];
     stationDetails = [];
     historyObserver?.disconnect();
@@ -1134,8 +1216,15 @@
           "เกณฑ์นี้ใช้กับจุดวัดของสถานี ไม่ได้ยืนยันว่าจะท่วมจุดที่คุณเลือก",
         ),
       );
+      const photo = window.WATER_STATION_PHOTO?.(s);
+      if (!photo)
+        info.append(
+          element("dt", "", "ภาพสถานี"),
+          element("dd", "", "ยังไม่มีภาพสาธารณะที่ยืนยันตรงสถานีนี้"),
+        );
       card.append(details);
       stationDetails.push({ id: s.id, node: details });
+      if (photo) appendStationPhoto(card, s, photo, photoPanels);
       if (map) {
         const button = element("button", "station-button", "ดูบนแผนที่ ↗");
         button.type = "button";
@@ -1166,6 +1255,64 @@
       for (const card of cards) historyObserver.observe(card);
     }
     $("show-more").hidden = shown >= rows.length;
+  }
+  function appendStationPhoto(card, station, photo, panels) {
+    const id = `${station.id}:photo`;
+    let panel = panels.get(id);
+    if (!panel) {
+      panel = element("details", "station-photo disclosure");
+      panel.append(element("summary", "", "ภาพประตูน้ำ · ภาพสถานที่"));
+      const figure = element("figure", "station-photo-figure");
+      const status = element(
+        "p",
+        "fine photo-status",
+        "เปิดเพื่อโหลดภาพจากเทศบาล",
+      );
+      status.setAttribute("role", "status");
+      const image = element("img", "station-photo-image");
+      image.alt = photo.alt;
+      image.width = 800;
+      image.height = 600;
+      image.loading = "lazy";
+      image.decoding = "async";
+      image.referrerPolicy = "no-referrer";
+      image.hidden = true;
+      const credit = element("a", "", `${photo.sourceLabel} ↗`);
+      credit.href = photo.sourceUrl;
+      credit.target = "_blank";
+      credit.rel = "noopener noreferrer";
+      const caption = element("figcaption", "fine", photo.caption);
+      caption.append(credit);
+      figure.append(image, status, caption);
+      panel.append(figure, element("p", "fine", photo.note));
+      let requested = false;
+      panel.ontoggle = () => {
+        if (!panel.open || requested) return;
+        requested = true;
+        status.textContent = "กำลังโหลดภาพสถานที่…";
+        image.hidden = false;
+        const timeout = setTimeout(() => {
+          image.hidden = true;
+          status.hidden = false;
+          status.textContent = "ภาพโหลดช้า เปิดดูจากเทศบาลได้ที่ลิงก์ด้านล่าง";
+        }, 15000);
+        image.onload = () => {
+          clearTimeout(timeout);
+          image.hidden = false;
+          status.hidden = true;
+        };
+        image.onerror = () => {
+          clearTimeout(timeout);
+          image.hidden = true;
+          status.hidden = false;
+          status.textContent =
+            "โหลดภาพไม่ได้ เปิดดูจากเทศบาลได้ที่ลิงก์ด้านล่าง";
+        };
+        image.src = photo.url;
+      };
+    }
+    card.append(panel);
+    stationDetails.push({ id, node: panel });
   }
   function render(data) {
     forecastRequestFailed = false;
@@ -1221,6 +1368,10 @@
         ? "ต้นทางไม่พร้อมใช้งาน"
         : "ลองขยายรัศมีค้นหา";
     $("near-level").textContent = s ? levelText(s) : "—";
+    motion?.update(
+      $("near-level"),
+      JSON.stringify([s?.id, s?.waterLevelMsl, s?.waterLevelLocal]),
+    );
     $("sensor-time").textContent = s
       ? `${s.source === "RID" ? "สถานีรายงาน" : "ตรวจวัด"}: ${formatTime(s.sensorUpdatedAt)}`
       : "เวลาตรวจวัด: —";
@@ -1512,6 +1663,7 @@
     $("manual-toggle").setAttribute("aria-expanded", String(open));
     if (open) {
       paintAreaChoices();
+      motion?.reveal($("manual-location"));
       $("area-search").focus?.();
     }
   };

@@ -91,6 +91,14 @@ The picker offers 375 public reference entries across 73 provinces: the original
 
 Design guidance used: the installed `mobile-app-ui-design` and `product-designer` skills, with their hierarchy, spacing, disclosure, touch target and accessibility principles applied to the existing HTML/CSS app.
 
+### Motion and station images
+
+The `motion-design` skill informs brief 160–280ms touch and disclosure feedback. Reading transitions use exact reported values and run only on meaningful changes in visible elements; five-second polls do not replay them. Reduced-motion preferences suppress spatial animation, including in-progress reading transitions. The outlook graphic uses the same conditional projections as the displayed numbers and distinguishes the measured anchor from the dashed future scenario.
+
+The Bang Nok Khwaek photo is attributed to the [municipality's public gate page](https://bnk.go.th/public/list/data/detail/id/77/menu/1545/page/1), checked on 4 October 2026. Its provider ID, code and coordinates are matched explicitly. Both gauge channels share a labelled overview photo, not a channel-specific view. Images load only when opened, retain their node across measurement refreshes, and show a source link on failure. No capture date is published, so the UI says it is a place photo, not live.
+
+No public live Bang Nok Khwaek camera was verified. The public RID INIT inspected contained no camera images, its station/image REST endpoints returned HTTP 401, and the [DWR public CCTV viewer](https://telemetry.dwr.go.th/reportCctv) returned no results for Samut Songkhram. Other regional camera services do not establish coverage at this gate. Integrating a live feed requires an authorized public source, exact station mapping and verifiable capture times; do not relabel archival photos or stale snapshots as live.
+
 ## Conditional level outlook
 
 The forecast section defaults to the nearest gauge and can select any gauge in the current radius, including separate upstream/downstream Bang Nok Khwaek points. It displays 1/3/6-hour targets from the current page time. The model assumes the latest approximately one-hour average level-change rate stays constant:

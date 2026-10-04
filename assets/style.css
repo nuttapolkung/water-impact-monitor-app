@@ -1,4 +1,8 @@
 :root {
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion-quick: 160ms;
+  --motion-standard: 280ms;
+  --motion-slow: 350ms;
   color-scheme: dark;
   --bg: #081923;
   --surface: #102731;
@@ -1548,4 +1552,112 @@ details a {
   min-width: 44px;
   display: inline-flex;
   align-items: center;
+}
+/* Calm feedback: no ambient loop or animated sensor-number interpolation. */
+button,
+.mobile-nav a {
+  transition:
+    transform var(--motion-quick) var(--motion-ease),
+    background-color var(--motion-quick) var(--motion-ease);
+}
+button:active:not(:disabled),
+.mobile-nav a:active {
+  transform: scale(0.98);
+}
+.location-chevron {
+  transition: transform var(--motion-quick) var(--motion-ease);
+}
+#manual-toggle[aria-expanded="true"] .location-chevron {
+  transform: rotate(180deg);
+}
+details[open] > :nth-child(2) {
+  animation: disclosure-enter var(--motion-standard) var(--motion-ease);
+}
+@keyframes disclosure-enter {
+  from {
+    opacity: 0.65;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.forecast-visual {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.forecast-visual svg {
+  display: block;
+  width: 100%;
+  max-height: 92px;
+  overflow: visible;
+}
+.forecast-projection {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+.forecast-anchor {
+  fill: var(--accent);
+}
+.forecast-point {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.forecast-visual text {
+  fill: var(--muted);
+  font-size: 10px;
+}
+.forecast-visual figcaption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.station-photo summary {
+  color: var(--accent);
+}
+.station-photo-figure {
+  margin: 8px 0;
+}
+.station-photo-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  border-radius: 8px;
+  background: var(--bg);
+}
+.station-photo figcaption {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.station-photo figcaption a {
+  width: fit-content;
+}
+.station-photo .photo-status {
+  padding: 8px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .mobile-nav a,
+  .location-chevron {
+    transition: none;
+  }
+  button:active:not(:disabled),
+  .mobile-nav a:active {
+    transform: none;
+  }
+  details[open] > :nth-child(2) {
+    animation: none;
+  }
 }
