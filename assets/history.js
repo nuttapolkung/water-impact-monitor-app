@@ -210,6 +210,28 @@ export function compareHistory(
   return result;
 }
 
+// Average over the actual near-one-hour measurement interval, not the page clock
+// or the provider's previous value whose timestamp may be missing.
+export function hourlyRate(station, history, options) {
+  const comparison = compareHistory(station, history, options);
+  const value = comparison.comparisons.find(
+    (c) => c.hours === 1 && c.status === "available",
+  );
+  if (!value || comparison.status !== "ready") return null;
+  return {
+    rateCmPerHour:
+      Math.round(
+        (((value.currentLevel - value.baselineLevel) * 100) /
+          (value.actualMinutes / 60)) *
+          10,
+      ) / 10 || 0,
+    baselineAt: value.baselineAt,
+    anchorAt: comparison.anchorAt,
+    actualMinutes: value.actualMinutes,
+    approximate: value.approximate,
+  };
+}
+
 async function thaiWaterGraph(ref, fetcher, now) {
   const localDate = (at) =>
     new Date(at + 7 * 3600000).toISOString().slice(0, 16).replace("T", " ");

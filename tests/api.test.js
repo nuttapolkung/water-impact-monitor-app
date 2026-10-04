@@ -147,6 +147,59 @@ test("API rate limiting does not block health checks", async () => {
   });
 });
 
+test("rain/tide endpoint stays independent when water fails, validates coordinates, and keeps prediction provenance", async () => {
+  await withServer(
+    {
+      now: () => Date.parse("2026-10-04T02:30:00Z"),
+      cache: {
+        get: async () => {
+          throw new Error("water unavailable");
+        },
+      },
+      rainSource: {
+        get: async () => ({
+          status: "fresh",
+          fetchedAt: "2026-10-04T02:30:00Z",
+          stations: [
+            {
+              id: "1",
+              name: "วัดบางคนฑีใน",
+              lat: 13.4913,
+              lon: 99.9445,
+              rain24hMm: 0,
+              measuredAt: "2026-10-04T01:00:00Z",
+            },
+          ],
+        }),
+      },
+    },
+    async (base) => {
+      const r = await fetch(
+        base + "/api/context?lat=13.518&lon=99.954&radius=20",
+        { headers: { Origin: "https://water-impact-monitor.onrender.com" } },
+      );
+      assert.equal(r.status, 200);
+      assert.equal(
+        r.headers.get("access-control-allow-origin"),
+        "https://water-impact-monitor.onrender.com",
+      );
+      const data = await r.json();
+      assert.equal(data.context.rainfall.station.rain24hMm, 0);
+      assert.equal(data.context.tide.kind, "prediction");
+      assert.equal(data.context.tide.current.levelMsl, 0.1);
+      assert.match(data.context.tide.sourceUrl, /hydro.navy.mi.th/);
+      assert.equal(
+        (await fetch(base + "/api/context?lat=91&lon=99")).status,
+        400,
+      );
+      assert.equal(
+        (await fetch(base + "/api/water?lat=13.518&lon=99.954")).status,
+        500,
+      );
+    },
+  );
+});
+
 test("Render clients behind the same proxy have independent limits", async () => {
   await withServer({ rateLimit: 1, trustRenderProxy: true }, async (base) => {
     const url = base + "/api/water?lat=13&lon=100";

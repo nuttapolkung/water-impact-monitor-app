@@ -198,7 +198,7 @@ export function nearbyStations(stations, location, radius, now = Date.now()) {
 export function assess(stations, sourceStatus) {
   const limitations = [
     "ยังไม่มีระดับความสูงของตำแหน่งคุณ แนวคันกั้นน้ำ และเส้นทางน้ำที่เชื่อมกับตำแหน่งนี้",
-    "ยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต",
+    "คะแนนยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต",
     "ระยะทางเป็นเส้นตรง ไม่ได้ยืนยันว่าสถานีอยู่ต้นน้ำหรือปลายน้ำของคุณ",
   ];
   const valid = stations.filter(

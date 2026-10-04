@@ -14,10 +14,10 @@
     <title>Water Impact Monitor · ติดตามน้ำรอบตัว</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/assets/vendor/leaflet.css" />
-    <link rel="stylesheet" href="/assets/style.css?v=20261003-sources" />
+    <link rel="stylesheet" href="/assets/style.css?v=20261004-context" />
     <script src="/assets/vendor/leaflet.js" defer></script>
     <script src="/assets/config.js" defer></script>
-    <script src="/assets/app.js?v=20261003-sources" defer></script>
+    <script src="/assets/app.js?v=20261004-context" defer></script>
   </head>
   <body>
     <a href="#dashboard" class="skip">ข้ามไปที่ข้อมูล</a>
@@ -196,8 +196,15 @@
           </article>
           <article class="metric context">
             <span class="metric-icon">≈</span>
-            <p class="label">น้ำทะเลหนุน</p>
-            <h3>ยังไม่มีข้อมูลที่เชื่อมต่อ</h3>
+            <p class="label">น้ำทะเล · ค่าทำนาย</p>
+            <h3 id="tide-value">รอเลือกพื้นที่</h3>
+            <p id="tide-station" class="muted"></p>
+            <p id="tide-detail" class="muted"></p>
+            <p id="tide-high" class="muted"></p>
+            <p class="fine">
+              ค่าทำนายที่ชายฝั่ง ไม่ใช่ค่าที่วัดจริง
+              และไม่ยืนยันน้ำหนุนถึงจุดที่เลือก
+            </p>
             <a
               href="https://hydro.navy.mi.th/waterlaveltable"
               target="_blank"
@@ -207,10 +214,13 @@
           </article>
           <article class="metric context">
             <span class="metric-icon">☂</span>
-            <p class="label">ฝนรอบพื้นที่</p>
-            <h3>ยังไม่มีข้อมูลที่เชื่อมต่อ</h3>
+            <p class="label">ฝนสะสม 24 ชม. ใกล้พื้นที่</p>
+            <h3 id="rain-value">รอเลือกพื้นที่</h3>
+            <p id="rain-station" class="muted"></p>
+            <p id="rain-time" class="muted"></p>
+            <p class="fine">ค่าที่สถานีใกล้เคียง ไม่ใช่ค่าฝนตรงพิกัดที่เลือก</p>
             <a
-              href="https://www.thaiwater.net/"
+              href="https://www.thaiwater.net/weather/rainfall"
               target="_blank"
               rel="noopener noreferrer"
               >ตรวจข้อมูลฝนจาก ThaiWater ↗</a
@@ -282,7 +292,7 @@
             ยังไม่มีระดับความสูงของตำแหน่งคุณ แนวคันกั้นน้ำ
             และเส้นทางน้ำที่เชื่อมกับตำแหน่งนี้
           </li>
-          <li>ยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต</li>
+          <li>คะแนนยังไม่รวมฝน น้ำทะเลหนุน การระบายน้ำ และระดับน้ำท่วมในอดีต</li>
           <li>
             สถานีที่อยู่ใกล้อาจอยู่คนละลำน้ำ
             ไม่ได้ยืนยันว่าสถานีอยู่ต้นน้ำหรือปลายน้ำของคุณ

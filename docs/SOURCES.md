@@ -1,4 +1,4 @@
-# Source verification — 2 October 2026 (Asia/Bangkok)
+# Source verification — updated 4 October 2026 (Asia/Bangkok)
 
 ## Integrated: ThaiWater telemetry
 
@@ -22,7 +22,7 @@ Verified fields:
 
 The live response and the [HII water-level page](https://tiwrmdev.hii.or.th/v3/telemetering/wl/warning) agree that level 3 is normal, 4 high and 5 overflow; levels 1/2 describe low water. [HII water data standards](https://standard.thaiwater.net/) describe data exchange and warning criteria.
 
-The endpoint has no previous sensor timestamp alongside `waterlevel_msl_previous`, so a rate per hour cannot safely be calculated from that field alone. The app observes successive timestamped readings instead. Bank references are metadata for the sensor station, not the elevation or levee protecting a user's property.
+The endpoint has no previous sensor timestamp alongside `waterlevel_msl_previous`, so a rate per hour cannot safely be calculated from that field alone. The card now prefers a compatible near-one-hour historical graph comparison, averaged over its actual measurement interval; successive timestamped observations remain a fallback. Bank references are metadata for the sensor station, not the elevation or levee protecting a user's property.
 
 Initial 50 km query around the clearly labeled Damnoen Saduak reference coordinate (13.518, 99.954) found 15 stations, including Ban Phaeo / MKG005 on Khlong Damnoen Saduak, Phra Ram 2 / MKG006, Photharam / RAJ001 and RID K.55A on the Mae Klong. Counts and readings vary with the upstream data and selected radius; coordinates are not a claim about the user's actual position.
 
@@ -39,7 +39,7 @@ Initial 50 km query around the clearly labeled Damnoen Saduak reference coordina
 
 ## Historical water levels — verified 3 October 2026
 
-- The official RID dashboard's station-detail code connects to `wss://telerid.rid.go.th/ws/station/<numeric ID>/`. Unlike the national INIT, its first JSON envelope contains `values.water_level_graph[index].time/value` arrays. Times are UTC Unix seconds, and the same indexed `cross_section` supplies the parameter and datum. Live retrieval of physical station 383 (TMK03) confirmed independent upstream/downstream channels; station 396 (TK.72) also provided a complete 24-hour comparison. Connections close after receipt or a ten-second timeout. The app fetches only visible cards, shares requests across gauges of one physical station, caches five minutes, and limits concurrency to two.
+- The official RID dashboard's station-detail code connects to `wss://telerid.rid.go.th/ws/station/<numeric ID>/`. Unlike the national INIT, its first JSON envelope contains `values.water_level_graph[index].time/value` arrays. Times are UTC Unix seconds, and the same indexed `cross_section` supplies the parameter and datum. Live retrieval of physical station 383 (TMK03) confirmed independent upstream/downstream channels; station 396 (TK.72) also provided a complete 24-hour comparison. Connections close after receipt or a ten-second timeout. The app immediately fetches the nearest station for the rate card, then other visible/requested cards, shares requests across gauges of one physical station, caches five minutes, and limits concurrency to two.
 - The official [ThaiWater dashboard](https://www.thaiwater.net/) uses `/api/v1/thaiwater30/public/waterlevel_graph` with `station_type=tele_waterlevel`, `station_id`, `start_date`, and `end_date`. A live request for station 754 returned `result: OK`, `data.graph_data[].datetime/value`; its unzoned times are Bangkok local time and its axis is MSL. A 02:00 reading of 0.528 m matched the national feed's rounded 0.53 m. Matching CORS was observed from the production origin in a command-line request; upstream throttling may still prevent a browser request.
 - Comparisons anchor to each gauge's actual latest graph measurement, not the page clock. They require a graph reading matching the published current value within rounding tolerance (0.0051 m), the same provider/station/channel/datum, and fresh current data. During the live check TMK03's shared current-list timestamp was 02:30, but its downstream graph last measured at 02:00 while upstream had a 02:30 sample. For RID, the latest graph point at/before the shared report is used, with its own timestamp disclosed; an older point is never searched just to find a matching value. Both the report and that graph point must be fresh. ThaiWater's single-point report requires an exact-time graph match. The graph's unrounded value avoids false deltas caused by two-decimal dashboard rounding. Baselines use the nearest recorded sample within ±15 minutes, favoring the earlier sample on a tie. Approximate windows disclose actual timestamps/intervals. Missing samples, conflicting duplicates, invalid magnitudes (including ±32767 m), stale readings and mismatches do not produce numbers. No interpolation or cross-station substitution is used.
 - Public historical graphs are fetched in the browser because Render-to-RID connectivity has timed out. Requests do not carry location or cookies. ThaiWater responses are capped at 1 MiB; RID at 8 MiB; graphs are capped at 5,000 samples and retained for 27 hours. HTTP 429/403 cool down the entire affected provider for at least 15 minutes or longer Retry-After. Failure results expire after a minute. No durable per-user history store or persistent socket is created.
@@ -57,12 +57,19 @@ Primary sources:
 
 The curated code/coordinate mapping is in `assets/water-routes.js`. Coincident named gauges TK.55A/TTC08 and Phetchaburi TPB14/TPB15 use the matching official river diagram and station location. Unverified tributary/canal points, including TK.73, TK.71, TK.78 and TK.74, retain “origin not yet confirmed”; TK.74's broad registry river label does not resolve its local hydraulic path. This coverage is deliberately incomplete; nearby stations are never drawn as a hydraulic chain.
 
-## Candidate: rain and tide
+## Integrated rainfall context — verified 4 October 2026
 
-- The RID REST documentation lists structured rainfall services, but authenticated access and response schema remain unverified. An early guessed ThaiWater `/rainfall24h` URL returned 404 and is not used.
-- [Royal Thai Navy Hydrographic Department 2026 tide tables](https://hydro.navy.mi.th/waterlaveltable) provide authoritative station predictions, including separate reference datums. A published tide table is not a live sensor measurement at Damnoen Saduak, nor a validated local storm-surge forecast.
-- Tide-station selection, datum compatibility, temporal interpolation and local hydraulic propagation must be resolved before using predictions in impact scoring.
-- Current UI explicitly marks rain, tide and user elevation as unavailable and links the official reference sources. No inferred or invented readings enter the score.
+- The official [ThaiWater rainfall page](https://www.thaiwater.net/weather/rainfall) and its deployed `app.chunk.js` use `https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h`. A live request returned HTTP 200 with `result: OK`, 4,589 rows and CORS matching the production origin. Counts and readings change. The guessed `/rainfall24h` URL is not used.
+- Verified fields are `data[].station.id`, `tele_station_name.th`, `tele_station_lat`, `tele_station_long`, `rain_24h` in mm, `rainfall_datetime` in unzoned Thailand time and `agency.agency_name`. At the Damnoen reference, Wat Bang Khonthi Nai (ID 1316771) was 3.14 km away with measured 0 mm over the 24-hour period ending 4 October at 08:00. A valid zero is preserved; missing, negative and sentinel values are not observations. This accumulation does not indicate instantaneous rainfall.
+- The nearest fresh gauge inside the selected radius is preferred; a usable older gauge is labeled stale. Sensor freshness is three hours, maximum usable age six hours. National source caches last five minutes and retain the original fetch time through failures, for at most six hours. Saved cards also age during repeated request failures. Both server and browser requests have ten-second source bounds, an 8 MiB body cap and independent throttling cooldowns. Browser requests omit cookies and coordinates.
+- `/api/context` loads independently of water sources. A browser can supplement unavailable/stale hosted rain data. The card discloses station, distance, measurement time and agency; its value is not asserted to be rain at the user's location. It does not enter impact scoring.
+
+## Integrated coastal tide predictions — verified 4 October 2026
+
+- [Royal Thai Navy Hydrographic Department 2026 tide tables](https://hydro.navy.mi.th/waterlaveltable) publish separate lowest-low-water and MSL editions. The app specifically uses the MSL [Pak Nam Mae Klong PDF](https://hydro.navy.mi.th/storage/frontend/article/23009/file/th/MK2026mls.pdf) and [Pak Nam Tha Chin PDF](https://hydro.navy.mi.th/storage/frontend/article/23007/file/th/TC2026msl.pdf). The source filename `mls` is retained verbatim; the Mae Klong document itself explicitly states MSL.
+- The PDFs specify hourly predicted levels above mean sea level and Thailand standard time, UTC+7. Published Mae Klong coordinates are 13°22′39″N, 99°59′34″E, 16.18 km from the Damnoen reference. Both station coordinates are extracted from each monthly table and checked for consistency. Nearest coastal reference selection within 100 km does not establish a waterway connection or local water level.
+- The offline importer validated all 365 days and 24 hourly values at both stations (17,520 entries), station names, coordinates, year, datum and timezone. Source SHA-256 hashes are stored with the generated dataset. Mae Klong's October table on printed page 166 was also visually cross-checked: 4 October hours 08:00–14:00 read -0.3, 0.1, 0.6, 0.9, 1.1, 1.2, 1.2 m MSL.
+- The card displays the last exact hourly prediction and its time, without interpolation, plus the maximum of the next 24 hourly samples when all are present. Values outside 2026 or an incomplete future window remain unavailable; an old year's readings never repeat. Updating annual tables requires new source verification and importer/tests updates. No live sensor, storm-surge model or flood arrival prediction is claimed. These predictions do not enter impact scoring.
 
 ## Map and emergency references
 
@@ -72,7 +79,7 @@ The curated code/coordinate mapping is in `assets/water-routes.js`. Coincident n
 
 ## Remaining evidence
 
-Physical iPhone/Android GPS permission, acquisition and accuracy still require testing on those devices. Browser viewport tests and mocked GPS-state tests do not prove this. Rain/tide/elevation integration and calibrated flood-impact prediction remain separate work.
+Physical iPhone/Android GPS permission, acquisition and accuracy still require testing on those devices. Browser viewport tests and mocked GPS-state tests do not prove this. User elevation, local hydraulic propagation and calibrated flood-impact prediction remain separate work; rain and tide are now connected as clearly attributed context only.
 
 ## Hosted upstream behavior
 

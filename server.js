@@ -5,6 +5,11 @@ import { resolve, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createWaterCache } from "./src/cache.js";
 import { nearbyStations, assess, number, SOURCE_URL } from "./src/water.js";
+import {
+  createRainSource,
+  rainfallContext,
+  tideContext,
+} from "./assets/context.js";
 
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const DEFAULT_ORIGINS = [
@@ -22,6 +27,7 @@ const mime = {
 
 export function createApp({
   cache = createWaterCache(),
+  rainSource = createRainSource(),
   rateLimit = 90,
   origins = DEFAULT_ORIGINS,
   now = Date.now,
@@ -68,7 +74,7 @@ export function createApp({
         json(200, { status: "ok", version });
         return;
       }
-      if (url.pathname === "/api/water") {
+      if (url.pathname === "/api/water" || url.pathname === "/api/context") {
         if (req.method !== "GET") {
           json(405, { error: "METHOD_NOT_ALLOWED" });
           return;
@@ -127,8 +133,22 @@ export function createApp({
           });
           return;
         }
-        const data = await cache.get();
         const location = { lat, lon };
+        if (url.pathname === "/api/context") {
+          const rain = await rainSource.get();
+          json(200, {
+            version,
+            checkedAt: new Date(now()).toISOString(),
+            location,
+            radiusKm: radius,
+            context: {
+              rainfall: rainfallContext(rain, location, radius, now()),
+              tide: tideContext(location, now()),
+            },
+          });
+          return;
+        }
+        const data = await cache.get();
         const stations = nearbyStations(data.stations, location, radius, now());
         const checkedAt = new Date(now()).toISOString();
         json(data.status === "unavailable" ? 503 : 200, {
@@ -162,12 +182,12 @@ export function createApp({
           context: {
             elevation: { status: "unavailable" },
             tide: {
-              status: "unavailable",
-              sourceUrl: "https://hydro.navy.mi.th/waterlaveltable",
+              ...tideContext(location, now()),
             },
             rainfall: {
-              status: "unavailable",
-              sourceUrl: "https://www.thaiwater.net/",
+              status: "separate_endpoint",
+              endpoint: "/api/context",
+              sourceUrl: "https://www.thaiwater.net/weather/rainfall",
             },
           },
         });

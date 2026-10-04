@@ -6,6 +6,7 @@ import {
   normalizeThaiWaterHistory,
   createHistorySource,
   historyReference,
+  hourlyRate,
 } from "../assets/history.js";
 import { fetchRidBrowserStation } from "../assets/rid-source.js";
 
@@ -46,6 +47,22 @@ const compare = (
   h = normalizeRidHistory(graph(), "383"),
   options = {},
 ) => compareHistory(s, h, { now: anchor + 60000, ...options });
+
+test("hourly rate uses the actual same-gauge interval and refuses missing or stale baselines", () => {
+  const h = normalizeRidHistory(graph(), "383");
+  h.channels[0].points.find((p) => p.at === at(1)).at = at(1.25);
+  const rate = hourlyRate(station, h, { now: anchor + 60000 });
+  assert.equal(rate.actualMinutes, 75);
+  assert.equal(rate.rateCmPerHour, -0.4);
+  assert.equal(rate.approximate, true);
+  assert.equal(rate.anchorAt, at(0));
+  assert.equal(
+    hourlyRate(station, h, { now: anchor + 60000, sourceStatus: "stale" }),
+    null,
+  );
+  h.channels[0].points = h.channels[0].points.filter((p) => p.at !== at(1.25));
+  assert.equal(hourlyRate(station, h, { now: anchor + 60000 }), null);
+});
 
 test("history compares 1/3/6/24 hours using unrounded same-instant readings and preserves each gauge", () => {
   const history = normalizeRidHistory(graph(), "383");

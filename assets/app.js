@@ -339,6 +339,159 @@
   let historyRows = new Map(),
     visibleHistory = new Set();
   const historyPeriods = [1, 3, 6, 24];
+  let contextModule,
+    contextImport,
+    contextState = null,
+    contextActive = null;
+  function paintRate() {
+    const s = lastData?.stations[0],
+      fresh = lastData?.source.status === "fresh" && s?.dataQuality === "fresh";
+    const response = s && historyResponses.get(s.id);
+    const rate =
+      fresh && response?.status === "ready" && historyModule
+        ? historyModule.hourlyRate(s, response.data, {
+            sourceStatus: lastData.source.status,
+          })
+        : null;
+    if (rate) {
+      $("rise-rate").textContent =
+        `${rate.rateCmPerHour > 0 ? "↑ เพิ่ม" : rate.rateCmPerHour < 0 ? "↓ ลด" : "→ คงที่"} ${Math.abs(rate.rateCmPerHour).toFixed(1)} ซม./ชม.`;
+      $("trend").textContent =
+        `${s.name} · เฉลี่ยช่วง ${Math.round(rate.actualMinutes)} นาที · ${formatTime(rate.baselineAt)} → ${formatTime(rate.anchorAt)}`;
+    } else if (fresh && Number.isFinite(s.riseRateCmPerHour)) {
+      $("rise-rate").textContent =
+        `${s.riseRateCmPerHour > 0 ? "+" : ""}${s.riseRateCmPerHour.toFixed(1)} ซม./ชม.`;
+      $("trend").textContent =
+        `${s.name} · เทียบเวลาวัดสองครั้ง ${formatTime(s.previousSensorUpdatedAt)} → ${formatTime(s.sensorUpdatedAt)}`;
+    } else {
+      $("rise-rate").textContent =
+        fresh && historyPending.has(s.id)
+          ? "กำลังเทียบย้อนหลัง 1 ชม.…"
+          : "ยังเทียบย้อนหลังไม่ได้";
+      $("trend").textContent = s
+        ? `${s.name} · ${fresh ? "ต้องมีค่าของจุดวัดเดียวกันและเวลาครบ" : "ข้อมูลล่าสุดเก่าหรือไม่ครบ"}`
+        : "ยังไม่มีสถานีที่เทียบได้";
+    }
+  }
+  function paintContext(rain) {
+    if (!contextModule || !here) return;
+    rain = contextModule.cachedRainfallContext(rain, here, +$("radius").value);
+    const tide = contextModule.tideContext(here);
+    $("tide-value").textContent =
+      tide.status === "available"
+        ? `${tide.current.levelMsl.toFixed(2)} เมตร`
+        : tide.status === "no_nearby"
+          ? "ไม่มีจุดอ้างอิงใกล้พื้นที่"
+          : "ไม่มีตารางของช่วงเวลานี้";
+    $("tide-station").textContent = tide.station
+      ? `${tide.station.name} · ห่าง ${tide.station.distanceKm.toFixed(1)} กม.`
+      : "ครอบคลุมปากน้ำแม่กลองและปากน้ำท่าจีน";
+    $("tide-detail").textContent = tide.current
+      ? `ตามตาราง ${formatTime(tide.current.at)} · เทียบระดับทะเลปานกลาง`
+      : "ตรวจตารางล่าสุดจากกรมอุทกศาสตร์";
+    $("tide-high").textContent = tide.high
+      ? `สูงสุดตามตาราง 24 ชม.ข้างหน้า ${tide.high.levelMsl.toFixed(2)} ม. · ${formatTime(tide.high.at)}`
+      : "";
+    const station = rain?.station;
+    $("rain-value").textContent = station
+      ? `${rain.status === "stale" ? "ข้อมูลเก่า · " : ""}${station.rain24hMm.toFixed(1)} มม.`
+      : rain?.status === "no_nearby"
+        ? "ไม่พบสถานีฝนในรัศมี"
+        : rain
+          ? "ยังรับข้อมูลฝนไม่ได้"
+          : "กำลังโหลดข้อมูลฝน…";
+    $("rain-station").textContent = station
+      ? `${station.name} · ห่าง ${station.distanceKm.toFixed(1)} กม.`
+      : rain?.status === "no_nearby"
+        ? `ลองขยายรัศมีจาก ${rain.radiusKm} กม.`
+        : "";
+    $("rain-time").textContent = station
+      ? `สะสม 24 ชม.สิ้นสุด ${formatTime(station.measuredAt)} · ${station.agency || "ThaiWater"}`
+      : rain
+        ? "ต้นทางยังไม่พร้อม ลองใหม่ภายหลัง"
+        : "";
+  }
+  async function loadContext() {
+    if (!here || document.hidden || !navigator.onLine) return;
+    const location = { lat: here.lat, lon: here.lon },
+      radiusKm = +$("radius").value;
+    const key = `${location.lat},${location.lon},${radiusKm}`,
+      requestId = serial;
+    if (contextState?.key === key && contextState.expiresAt > Date.now()) {
+      paintContext(contextState.rain);
+      return;
+    }
+    if (contextActive?.key === key) return;
+    contextActive?.controller.abort();
+    const controller = new AbortController(),
+      work = { key, controller };
+    contextActive = work;
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+      contextImport ||= import("./context.js?v=20261004-context");
+      contextModule = await contextImport;
+      if (requestId !== serial || controller.signal.aborted) return;
+      paintContext(contextState?.key === key ? contextState.rain : null);
+      let rain;
+      try {
+        const query = new URLSearchParams({ ...location, radius: radiusKm });
+        const response = await fetch(
+          `${config.apiBase || ""}/api/context?${query}`,
+          {
+            signal: AbortSignal.any([
+              controller.signal,
+              AbortSignal.timeout(10000),
+            ]),
+            cache: "no-store",
+            headers: { Accept: "application/json" },
+          },
+        );
+        const body = await response.json();
+        if (!response.ok || !body.context?.rainfall)
+          throw new Error("CONTEXT_UNAVAILABLE");
+        rain = body.context.rainfall;
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+      }
+      if (!rain || rain.status === "unavailable" || rain.status === "stale") {
+        const national = await contextModule.browserRainSource.get();
+        const browser = contextModule.rainfallContext(
+          national,
+          location,
+          radiusKm,
+        );
+        if (
+          !rain ||
+          browser.status === "available" ||
+          (rain.status === "unavailable" && browser.station)
+        )
+          rain = browser;
+      }
+      if (requestId !== serial || controller.signal.aborted) return;
+      contextState = {
+        key,
+        rain,
+        expiresAt:
+          Date.now() + (rain.status === "available" ? 5 * 60000 : 60000),
+      };
+      paintContext(rain);
+    } catch {
+      if (requestId === serial) {
+        contextState = {
+          key,
+          rain:
+            contextState?.key === key && contextState.rain.station
+              ? { ...contextState.rain, status: "stale" }
+              : { status: "unavailable" },
+          expiresAt: Date.now() + 60000,
+        };
+        paintContext(contextState.rain);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (contextActive === work) contextActive = null;
+    }
+  }
   function paintHistory(row) {
     const response = historyResponses.get(row.station.id);
     const result =
@@ -462,7 +615,7 @@
     historyPending.add(id);
     paintHistory(row);
     try {
-      historyImport ||= import("./history.js?v=20261003-channel");
+      historyImport ||= import("./history.js?v=20261004-context");
       historyModule = await historyImport;
       const response = await historyModule.historySource.get(row.station);
       if (historyResponses.size >= 256 && !historyResponses.has(id))
@@ -476,6 +629,7 @@
     } finally {
       historyPending.delete(id);
       if (historyRows.has(id)) paintHistory(historyRows.get(id));
+      if (lastData?.stations[0]?.id === id) paintRate();
     }
   }
   function appendRoute(card, s, expanded) {
@@ -831,18 +985,14 @@
     $("sensor-time").textContent = s
       ? `${s.source === "RID" ? "สถานีรายงาน" : "ตรวจวัด"}: ${formatTime(s.sensorUpdatedAt)}`
       : "เวลาตรวจวัด: —";
-    $("rise-rate").textContent =
-      s?.riseRateCmPerHour != null
-        ? `${s.riseRateCmPerHour > 0 ? "+" : ""}${s.riseRateCmPerHour.toFixed(1)} ซม./ชม.`
-        : "ยังไม่มีค่าต่อชั่วโมง";
-    $("trend").textContent = s
-      ? `${trendText(s)}${s.riseRateCmPerHour == null ? " • ไม่ทราบช่วงเวลาของค่าก่อนหน้า" : ""}`
-      : "ต้องมีเวลาตรวจวัดสองครั้ง";
     $("checked-time").textContent =
       `หน้าเว็บตรวจล่าสุด: ${formatTime(data.checkedAt)}`;
     $("fetched-time").textContent =
       `แอปรับข้อมูลต้นทาง: ${formatTime(data.updatedAt)}`;
     renderStations();
+    if (s) void loadHistory(s.id);
+    paintRate();
+    void loadContext();
     updateMap(data.stations);
   }
   function schedule(delay = 5000) {
@@ -1002,6 +1152,8 @@
   function resetRequest() {
     serial++;
     if (active) active.abort();
+    contextActive?.controller.abort();
+    contextActive = null;
     active = null;
     clearTimeout(timer);
     setLoading(false);
@@ -1011,6 +1163,7 @@
     resetRequest();
     here = location;
     lastData = null;
+    contextState = null;
     shown = 12;
     $("place").textContent = here.label;
     $("coords").textContent =
@@ -1028,6 +1181,16 @@
     $("sensor-time").textContent = "เวลาตรวจวัด: —";
     $("rise-rate").textContent = "ยังไม่มีค่าต่อชั่วโมง";
     $("trend").textContent = "ต้องมีเวลาตรวจวัดสองครั้ง";
+    $("rain-value").textContent = "กำลังโหลดข้อมูลฝน…";
+    $("tide-value").textContent = "กำลังอ่านตารางน้ำ…";
+    for (const id of [
+      "rain-station",
+      "rain-time",
+      "tide-station",
+      "tide-detail",
+      "tide-high",
+    ])
+      $(id).textContent = "";
     $("checked-time").textContent = "หน้าเว็บตรวจล่าสุด: —";
     $("fetched-time").textContent = "แอปรับข้อมูลต้นทาง: —";
     $("station-count").textContent = "กำลังค้นหา";
@@ -1035,6 +1198,7 @@
     assessment();
     renderStations();
     updateMap([]);
+    void loadContext();
     load();
   }
   function locationUnavailable(reason) {

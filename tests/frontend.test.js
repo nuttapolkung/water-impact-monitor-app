@@ -147,7 +147,8 @@ function harness({
         });
       });
     },
-    setTimeout: (callback) => {
+    setTimeout: (callback, delay) => {
+      callback.delay = delay;
       timers.set(++timerId, callback);
       return timerId;
     },
@@ -200,7 +201,7 @@ test("GPS success uses high accuracy, reports accuracy, and calls only our norma
     station.name,
   );
   assert.match(h.get("confidence").textContent, /ต่ำ/);
-  assert.equal(h.get("rise-rate").textContent, "ยังไม่มีค่าต่อชั่วโมง");
+  assert.equal(h.get("rise-rate").textContent, "ยังเทียบย้อนหลังไม่ได้");
 });
 
 test("GPS denial, unavailable position, timeout, and unknown errors automatically load Damnoen Saduak", async () => {
@@ -326,7 +327,8 @@ test("failed and timed-out initial requests dismiss the skeleton and expose retr
   for (const abort of [false, true]) {
     const h = harness({ deferredFetch: true });
     h.error(2);
-    if (abort) [...h.timers.values()][0]();
+    if (abort)
+      [...h.timers.values()].find((callback) => callback.delay === 65000)();
     else h.pendingFetches[0].reject();
     await settle();
     assert.equal(h.get("stations-loading").hidden, true);
@@ -454,11 +456,13 @@ const ridData = (changes = {}, sourceStatus = "fresh") => ({
   source: { name: "RID · เบราว์เซอร์", status: sourceStatus, fallback: true },
 });
 
-test("history loading shows placeholders for all four periods and clears them when the request fails", async () => {
-  const h = harness({ responseData: ridData() });
+test("non-nearest history loading shows placeholders for all four periods and clears them when the request fails", async () => {
+  const responseData = ridData({ id: "rid:383:0" });
+  responseData.stations.push({ ...responseData.stations[0], id: "rid:383:1" });
+  const h = harness({ responseData });
   h.success();
   await settle();
-  const card = h.get("stations").children[0];
+  const card = h.get("stations").children[1];
   byClass(card, "history-button").onclick();
   const grid = byClass(card, "history-grid");
   assert.equal(grid.attributes["aria-busy"], "true");
@@ -598,7 +602,10 @@ test("history cards expose all four periods and clearly explain unavailable data
     ["1 ชม.", "3 ชม.", "6 ชม.", "24 ชม."],
   );
   assert.ok(grid.children.every((c) => c.children[1].textContent === "—"));
-  assert.match(byClass(card, "history-caption").textContent, /โหลดค่าจริง/);
+  assert.match(
+    byClass(card, "history-caption").textContent,
+    /ยังไม่มีข้อมูลย้อนหลัง/,
+  );
   assert.match(
     byClass(card, "station-route-details").children[2].children[1].textContent,
     /ยังยืนยัน.*ไม่ได้/,
