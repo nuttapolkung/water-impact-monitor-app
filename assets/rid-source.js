@@ -58,6 +58,44 @@ export function fetchRidBrowserSnapshot(options = {}) {
   return readRidSocket(RID_URL, (p) => p?.type === "INIT", options);
 }
 
+// Water and rain share the same bounded national connection. A failed refresh
+// throws instead of relabeling an old payload as fresh in either consumer.
+export function createRidSnapshotCache({
+  fetcher = fetchRidBrowserSnapshot,
+  now = Date.now,
+} = {}) {
+  let snapshot,
+    pending,
+    retryAt = 0,
+    lastError;
+  return {
+    async get() {
+      const age = snapshot ? now() - Date.parse(snapshot.fetchedAt) : Infinity;
+      if (age >= 0 && age < 60000) return snapshot;
+      if (now() < retryAt) throw lastError;
+      pending ||= (async () => {
+        try {
+          const payload = await fetcher();
+          snapshot = { payload, fetchedAt: new Date(now()).toISOString() };
+          retryAt = 0;
+          return snapshot;
+        } catch (error) {
+          lastError = error;
+          retryAt = now() + 60000;
+          throw error;
+        }
+      })().finally(() => {
+        pending = null;
+      });
+      return pending;
+    },
+  };
+}
+export const browserRidSnapshotCache = createRidSnapshotCache();
+export async function fetchSharedRidBrowserSnapshot() {
+  return browserRidSnapshotCache.get();
+}
+
 // This is the public station-detail socket used by the official dashboard.
 // It provides timestamped graph values for each separate gauge point.
 export function fetchRidBrowserStation({ stationId, ...options } = {}) {

@@ -4,11 +4,14 @@ import {
   normalizeRainfall,
   rainfallContext,
   cachedRainfallContext,
+  normalizeRidRainfall,
+  createRidRainSource,
   createRainSource,
   tideContext,
   RAIN_URL,
 } from "../assets/context.js";
 import tables from "../assets/tide-tables-2026.js";
+import { createRidSnapshotCache } from "../assets/rid-source.js";
 
 const now = Date.parse("2026-10-04T02:30:00Z"),
   location = { lat: 13.518, lon: 99.954 };
@@ -28,6 +31,93 @@ const response = () =>
   new Response(JSON.stringify(payload()), {
     headers: { "content-type": "application/json" },
   });
+
+const ridPayload = () => ({
+  type: "INIT",
+  data: {
+    396: {
+      name: "วัดบางคนฑีใน",
+      measure: { r: true },
+      location: { y: 13.4913, x: 99.9445 },
+      values: {
+        rain_sum: { value: [0, 5], unixtime: [now / 1000, now / 1000] },
+        rain_sum_now: { value: 9, unixtime: now / 1000 },
+      },
+    },
+  },
+});
+
+test("RID rain uses the completed 07:00-to-07:00 period, separate from report time and rain since today's 07:00", () => {
+  const stations = normalizeRidRainfall(ridPayload());
+  assert.equal(stations[0].rain24hMm, 0);
+  assert.equal(stations[0].periodEndAt, "2026-10-04T00:00:00.000Z");
+  assert.equal(stations[0].measuredAt, "2026-10-04T02:30:00.000Z");
+  assert.equal(stations[0].source, "RID");
+  for (const value of [null, "-", -1, 32767]) {
+    const p = ridPayload();
+    p.data[396].values.rain_sum.value[0] = value;
+    assert.throws(() => normalizeRidRainfall(p), /SCHEMA/);
+  }
+  const missing = ridPayload();
+  delete missing.data[396].values.rain_sum;
+  assert.throws(() => normalizeRidRainfall(missing), /SCHEMA/);
+  const malformed = ridPayload();
+  malformed.data[396].values.rain_sum.value = "0";
+  assert.throws(() => normalizeRidRainfall(malformed), /SCHEMA/);
+  const early = ridPayload();
+  early.data[396].values.rain_sum.unixtime[0] =
+    Date.parse("2026-10-03T23:45:00Z") / 1000;
+  assert.equal(
+    normalizeRidRainfall(early)[0].periodEndAt,
+    "2026-10-03T00:00:00.000Z",
+  );
+});
+
+test("water and rain share one RID snapshot while failed refreshes retain honest age and backoff", async () => {
+  let time = now,
+    calls = 0,
+    failed = false;
+  const shared = createRidSnapshotCache({
+    now: () => time,
+    fetcher: async () => {
+      calls++;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (failed) throw new Error("connection failed");
+      return ridPayload();
+    },
+  });
+  const rainSource = createRidRainSource({
+    snapshotSource: shared,
+    now: () => time,
+  });
+  const [water, rain] = await Promise.all([shared.get(), rainSource.get()]);
+  assert.equal(calls, 1);
+  assert.equal(water.payload.type, "INIT");
+  assert.equal(rain.status, "fresh");
+  assert.equal(rainfallContext(rain, location, 20, time).station.rain24hMm, 0);
+  assert.equal(
+    rainfallContext(rain, location, 20, time).sourceUrl,
+    "https://telerid.rid.go.th/",
+  );
+  assert.equal(
+    cachedRainfallContext(
+      rainfallContext(rain, location, 20, time),
+      location,
+      20,
+      time + 61000,
+    ).status,
+    "stale",
+  );
+  time += 61000;
+  failed = true;
+  const stale = await rainSource.get();
+  assert.equal(stale.status, "stale");
+  assert.equal(stale.fetchedAt, rain.fetchedAt);
+  await assert.rejects(shared.get());
+  assert.equal(calls, 2);
+  time += 7 * 3600000;
+  assert.equal((await rainSource.get()).status, "unavailable");
+});
 
 test("rainfall preserves measured zero, Bangkok timestamps and rejects missing/negative/sentinel/future data", () => {
   const stations = normalizeRainfall(payload());

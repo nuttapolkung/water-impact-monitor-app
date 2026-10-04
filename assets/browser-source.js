@@ -3,9 +3,12 @@ import {
   normalizeWater,
   nearbyStations,
   assess,
-} from "./water.js?v=20261003-sources";
+} from "./water.js?v=20261004-context-rid";
 import { normalizeRid } from "./rid-water.js";
-import { RID_URL, fetchRidBrowserSnapshot } from "./rid-source.js";
+import {
+  RID_URL,
+  fetchSharedRidBrowserSnapshot,
+} from "./rid-source.js?v=20261004-context-rid";
 export { mergeWaterResponses } from "./source-set.js";
 
 // Each page shares one national snapshot per minute. Coordinates are used only
@@ -95,14 +98,19 @@ export function createBrowserSource({
     for (const source of sources) {
       if (now() < (cooldowns.get(source.name) || 0)) continue;
       try {
+        const loaded = await source.load(signal);
+        const sharedRid =
+          source.name === "RID" && loaded?.payload?.type === "INIT";
         const stations = source.normalize(
-          await source.load(signal),
+          sharedRid ? loaded.payload : loaded,
           snapshot?.stations || [],
         );
         if (signal?.aborted)
           throw new DOMException("Request aborted", "AbortError");
         snapshot = {
-          fetchedAt: new Date(now()).toISOString(),
+          fetchedAt: sharedRid
+            ? loaded.fetchedAt
+            : new Date(now()).toISOString(),
           stations,
           name: source.name,
           url: source.url,
@@ -183,11 +191,11 @@ export function createBrowserSource({
   };
 }
 export const browserSource = createBrowserSource({
-  ridFetcher: fetchRidBrowserSnapshot,
+  ridFetcher: fetchSharedRidBrowserSnapshot,
 });
 // Supplement RID even while the main service can reach ThaiWater. Its national
 // snapshot is shared across polls and locations with the same 60-second cache.
 export const browserRidSource = createBrowserSource({
   includeThaiWater: false,
-  ridFetcher: fetchRidBrowserSnapshot,
+  ridFetcher: fetchSharedRidBrowserSnapshot,
 });

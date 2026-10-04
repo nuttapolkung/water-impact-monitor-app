@@ -1,9 +1,11 @@
 import { number, sensorTime, distanceKm, SENSOR_MAX_AGE_MS } from "./water.js";
 import tideTables from "./tide-tables-2026.js";
+import { browserRidSnapshotCache } from "./rid-source.js?v=20261004-context-rid";
 
 export const RAIN_URL =
   "https://api-v3.thaiwater.net/api/v1/thaiwater30/public/rain_24h";
 export const RAIN_PAGE = "https://www.thaiwater.net/weather/rainfall";
+export const RID_RAIN_PAGE = "https://telerid.rid.go.th/";
 const HOUR = 3600000;
 
 const label = (v) =>
@@ -57,6 +59,64 @@ export function normalizeRainfall(payload) {
   return [...stations.values()];
 }
 
+// RID index 0 is the completed 07:00-to-07:00 day, not rain since today's 07:00
+// (rain_sum_now). Keep the period end separate from the latest report time.
+export function normalizeRidRainfall(payload) {
+  if (
+    payload?.type !== "INIT" ||
+    !payload.data ||
+    Array.isArray(payload.data) ||
+    typeof payload.data !== "object"
+  )
+    throw new Error("RAIN_SCHEMA_INVALID");
+  const stations = [];
+  for (const [id, row] of Object.entries(payload.data)) {
+    if (
+      row?.measure?.r !== true ||
+      row.is_display === false ||
+      !/^\d+$/.test(id) ||
+      !Array.isArray(row.values?.rain_sum?.value) ||
+      !Array.isArray(row.values?.rain_sum?.unixtime)
+    )
+      continue;
+    const lat = number(row.location?.y),
+      lon = number(row.location?.x),
+      value = number(row.values?.rain_sum?.value?.[0]),
+      seconds = number(row.values?.rain_sum?.unixtime?.[0]);
+    if (
+      lat === null ||
+      lon === null ||
+      Math.abs(lat) > 90 ||
+      Math.abs(lon) > 180 ||
+      (lat === 0 && lon === 0) ||
+      value === null ||
+      value < 0 ||
+      value > 3000 ||
+      seconds === null ||
+      seconds <= 0 ||
+      seconds > 253402300799
+    )
+      continue;
+    const at = seconds * 1000;
+    stations.push({
+      id: `rid-rain:${id}`,
+      name: label(row.name) || label(row.code) || "สถานีไม่ระบุชื่อ",
+      lat,
+      lon,
+      rain24hMm: value,
+      measuredAt: new Date(at).toISOString(),
+      periodEndAt: new Date(
+        Math.floor(at / (24 * HOUR)) * 24 * HOUR,
+      ).toISOString(),
+      agency: "กรมชลประทาน",
+      source: "RID",
+      sourceUrl: RID_RAIN_PAGE,
+    });
+  }
+  if (!stations.length) throw new Error("RAIN_SCHEMA_INVALID");
+  return stations;
+}
+
 export function rainfallContext(
   snapshot,
   location,
@@ -97,7 +157,8 @@ export function rainfallContext(
     station,
     radiusKm,
     freshStations: nearby.filter((s) => s.fresh).length,
-    sourceUrl: RAIN_PAGE,
+    sourceUrl: station?.sourceUrl || RAIN_PAGE,
+    cacheSeconds: snapshot.cacheSeconds || 300,
     fetchedAt: snapshot.fetchedAt,
     nextRefreshAt: snapshot.nextRefreshAt,
     transport: snapshot.transport || "server",
@@ -119,12 +180,14 @@ export function cachedRainfallContext(
       stations: usable ? [context.station] : [],
       status: !usable
         ? "unavailable"
-        : context.status === "available" && age < 5 * 60000
+        : context.status === "available" &&
+            age < (context.cacheSeconds || 300) * 1000
           ? "fresh"
           : "stale",
       fetchedAt: context.fetchedAt,
       nextRefreshAt: context.nextRefreshAt,
       transport: context.transport,
+      cacheSeconds: context.cacheSeconds,
     },
     location,
     radiusKm,
@@ -235,6 +298,42 @@ export function createRainSource({
   };
 }
 export const browserRainSource = createRainSource({ transport: "browser" });
+
+export function createRidRainSource({
+  snapshotSource = browserRidSnapshotCache,
+  now = Date.now,
+} = {}) {
+  let last,
+    failed = false;
+  return {
+    async get() {
+      try {
+        const snapshot = await snapshotSource.get();
+        last = {
+          stations: normalizeRidRainfall(snapshot.payload),
+          fetchedAt: snapshot.fetchedAt,
+        };
+        failed = false;
+      } catch {
+        failed = true;
+      }
+      const age = last ? now() - Date.parse(last.fetchedAt) : Infinity,
+        usable = age >= 0 && age <= 6 * HOUR;
+      return {
+        stations: usable ? last.stations : [],
+        fetchedAt: usable ? last.fetchedAt : null,
+        status: !usable
+          ? "unavailable"
+          : failed || age >= 60000
+            ? "stale"
+            : "fresh",
+        transport: "browser",
+        cacheSeconds: 60,
+      };
+    },
+  };
+}
+export const browserRidRainSource = createRidRainSource();
 
 // Hourly official predictions, never interpolated or relabeled as measurements.
 // This is a nearby coastal reference, not propagation to the selected property.

@@ -406,10 +406,17 @@
         ? `ลองขยายรัศมีจาก ${rain.radiusKm} กม.`
         : "";
     $("rain-time").textContent = station
-      ? `สะสม 24 ชม.สิ้นสุด ${formatTime(station.measuredAt)} · ${station.agency || "ThaiWater"}`
+      ? `สะสม 24 ชม.สิ้นสุด ${formatTime(station.periodEndAt || station.measuredAt)}${station.periodEndAt ? ` · รายงาน ${formatTime(station.measuredAt)}` : ""} · ${station.agency || "ThaiWater"}`
       : rain
         ? "ต้นทางยังไม่พร้อม ลองใหม่ภายหลัง"
         : "";
+    const rid = station?.source === "RID";
+    $("rain-source-link").href = rid
+      ? contextModule.RID_RAIN_PAGE
+      : contextModule.RAIN_PAGE;
+    $("rain-source-link").textContent = rid
+      ? "ตรวจข้อมูลฝนจากกรมชลประทาน ↗"
+      : "ตรวจข้อมูลฝนจาก ThaiWater ↗";
   }
   async function loadContext() {
     if (!here || document.hidden || !navigator.onLine) return;
@@ -428,7 +435,7 @@
     contextActive = work;
     const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      contextImport ||= import("./context.js?v=20261004-context");
+      contextImport ||= import("./context.js?v=20261004-context-rid");
       contextModule = await contextImport;
       if (requestId !== serial || controller.signal.aborted) return;
       paintContext(contextState?.key === key ? contextState.rain : null);
@@ -467,12 +474,21 @@
         )
           rain = browser;
       }
+      if (!rain?.station || rain.status === "stale") {
+        const national = await contextModule.browserRidRainSource.get();
+        const rid = contextModule.rainfallContext(national, location, radiusKm);
+        if (rid.status === "available" || (!rain?.station && rid.station))
+          rain = rid;
+      }
       if (requestId !== serial || controller.signal.aborted) return;
       contextState = {
         key,
         rain,
         expiresAt:
-          Date.now() + (rain.status === "available" ? 5 * 60000 : 60000),
+          Date.now() +
+          (rain.status === "available"
+            ? (rain.cacheSeconds || 300) * 1000
+            : 60000),
       };
       paintContext(rain);
     } catch {
@@ -1073,7 +1089,7 @@
       if (response.status === 503 && data.source.status === "unavailable") {
         try {
           const { browserSource } = await import(
-            "./browser-source.js?v=20261003-sources"
+            "./browser-source.js?v=20261004-context-rid"
           );
           data = await browserSource.get({
             location: { lat: here.lat, lon: here.lon },
@@ -1101,7 +1117,7 @@
       ) {
         try {
           const { browserRidSource, mergeWaterResponses } = await import(
-            "./browser-source.js?v=20261003-sources"
+            "./browser-source.js?v=20261004-context-rid"
           );
           const rid = await browserRidSource.get({
             location: { lat: here.lat, lon: here.lon },

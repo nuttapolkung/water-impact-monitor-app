@@ -147,6 +147,43 @@ test("browser RID failover keeps ThaiWater throttled while refreshing independen
   assert.equal(secondary, 2);
 });
 
+test("water keeps a shared RID snapshot's original fetch time instead of renewing its freshness", async () => {
+  let time = Date.parse("2026-10-02T13:20:00Z");
+  const fetchedAt = new Date(time - 45000).toISOString();
+  let failed = false;
+  const source = createBrowserSource({
+    includeThaiWater: false,
+    now: () => time,
+    ridFetcher: async () => {
+      if (failed) throw new Error("failed refresh");
+      return {
+        fetchedAt,
+        payload: {
+          type: "INIT",
+          data: {
+            383: {
+              name: "บางนกแขวก",
+              location: { x: 99.927, y: 13.5 },
+              measure: { wl: true },
+              cross_section: [{ unit: 0, warning: 2.5, critical: 2.8 }],
+              values: { water_level: { value: 2.9, unixtime: time / 1000 } },
+            },
+          },
+        },
+      };
+    },
+  });
+  const first = await source.get(query);
+  assert.equal(first.updatedAt, fetchedAt);
+  assert.equal(first.source.status, "fresh");
+  time += 16000;
+  failed = true;
+  const stale = await source.get(query);
+  assert.equal(stale.updatedAt, fetchedAt);
+  assert.equal(stale.source.status, "stale");
+  assert.equal(stale.assessment.score, null);
+});
+
 test("browser RID reads one public INIT then closes and abort/timeout close sockets", async () => {
   let socket;
   class FakeSocket extends EventTarget {
